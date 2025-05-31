@@ -1,0 +1,7 @@
+{
+	"name": "github.com/jellevandenhooff/testjsapp",
+	"wasm_filename": "app.wasm",
+	"description": "A test js app",
+	"oci_repository": "localhost:5050/jellevandenhooff/testjsapp",
+	"publish_registry": "http://localhost/registry/publish"
+}

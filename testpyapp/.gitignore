@@ -1,0 +1,4 @@
+venv
+wit_world
+__pycache__
+app.wasm

@@ -1,0 +1,26 @@
+[package]
+name = "testrustapp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+maud = "0.27.0"
+wit-bindgen-rt = { version = "0.42.1", features = ["bitflags"] }
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.component]
+package = "component:testapp"
+proxy = true
+
+[package.metadata.component.target]
+path = "../wit"
+
+[package.metadata.component.target.dependencies]
+"wasi:io" = { path = "../wit/deps/io" }
+"wasi:cli" = { path = "../wit/deps/cli" }
+"wasi:clocks" = { path = "../wit/deps/clocks" }
+"wasi:filesystem" = { path = "../wit/deps/filesystem" }
+"wasi:sockets" = { path = "../wit/deps/sockets" }
+"wasi:random" = { path = "../wit/deps/random" }

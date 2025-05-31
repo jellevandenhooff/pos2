@@ -1,0 +1,6 @@
+CREATE TABLE registry_apps (
+	id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	version TEXT NOT NULL,
+	oci_reference TEXT NOT NULL
+);

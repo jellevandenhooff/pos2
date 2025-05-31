@@ -1,0 +1,7 @@
+{
+	"name": "github.com/jellevandenhooff/testrustapp",
+	"wasm_filename": "target/wasm32-wasip1/debug/testrustapp.wasm",
+	"description": "A test rust app",
+	"oci_repository": "localhost:5050/jellevandenhooff/testrustapp",
+	"publish_registry": "http://localhost/registry/publish"
+}

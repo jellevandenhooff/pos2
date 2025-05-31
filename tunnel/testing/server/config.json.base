@@ -1,0 +1,14 @@
+{
+  "http_listen_addr": "0.0.0.0:8080",
+  "web_base_url": "http://localhost:8080",
+  "https_listen_addr": "0.0.0.0:443",
+  "quinn_listen_addr": "0.0.0.0:4444",
+  "dns_listen_addr": "0.0.0.0:9999",
+  "dns_catalog_name": "tunnel.jelle.dev.",
+  "quinn_endpoint": "tunnel.jelle.dev:4444",
+  "hostname": "tunnel.jelle.dev",
+  "public_ip": "127.0.0.1",
+  "available_suffixes": [".tunnel.jelle.dev"],
+  "github_oauth2_client_id": "",
+  "github_oauth2_client_secret": ""
+}

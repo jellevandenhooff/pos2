@@ -1,0 +1,12 @@
+laptop.pos2.jelle.dev, *.laptop.pos2.jelle.dev {
+	tls {
+		dns digitalocean {env.DO_TOKEN}
+	}
+
+	handle {
+		reverse_proxy http://localhost:8080 {
+			header_up -Forwarded
+		}
+	}
+}
+

@@ -1,0 +1,6 @@
+CREATE TABLE user_apps (
+	id INTEGER PRIMARY KEY,
+	user_id INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	path TEXT NOT NULL
+);

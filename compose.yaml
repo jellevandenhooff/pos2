@@ -1,0 +1,6 @@
+services:
+  registry:
+    image: ghcr.io/project-zot/zot:latest
+    ports:
+      - "5050:5000"
+

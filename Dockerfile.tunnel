@@ -1,0 +1,28 @@
+FROM rust:1.87 AS build
+
+WORKDIR /app
+
+RUN cargo new /app/tunnel
+COPY ./tunnel/Cargo.toml ./tunnel/Cargo.lock /app/tunnel/
+
+WORKDIR /app/tunnel
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
+COPY ./tunnel /app/tunnel
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
+  set -e
+  # update timestamps to force a new build (copy pasted... unclear if needed)
+  touch ./src/main.rs
+  cargo build --release
+  # cargo strip (does not work... should it?)
+EOF
+
+FROM debian:bookworm-slim AS app
+RUN apt-get update && apt-get install -y ca-certificates
+COPY ./tunnel/rootCA.pem /usr/local/share/ca-certificates/rootCA.crt
+RUN update-ca-certificates
+COPY ./tunnel/tunnel.laptop.pos2.jelle.dev.pem ./tunnel/tunnel.laptop.pos2.jelle.dev-key.pem /
+COPY --from=build /app/tunnel/target/release/tunnel /tunnel
+CMD ["/tunnel"]
+
