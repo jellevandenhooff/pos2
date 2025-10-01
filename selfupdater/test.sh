@@ -1,12 +1,12 @@
 #!/bin/bash
 
-set -ev
-
-docker build . -t localhost:5050/selfupdater:testing
-docker push localhost:5050/selfupdater:testing
+set -v
 
 docker ps --filter name="selfupdater*" -aq | xargs docker stop -s SIGKILL
 docker ps --filter name="selfupdater*" -aq | xargs docker rm
+
+docker build . -t localhost:5050/selfupdater:testing
+docker push localhost:5050/selfupdater:testing
 
 rm ./data/selfupdater.sqlite3
 
