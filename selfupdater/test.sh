@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -v
+set -ev
 
 docker build . -t localhost:5050/selfupdater:testing
 docker push localhost:5050/selfupdater:testing

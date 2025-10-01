@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    time::Duration,
-};
+use std::collections::HashSet;
 
 use anyhow::{Context, Result, anyhow, bail};
 use bollard::Docker;
@@ -34,10 +31,10 @@ async fn pull_image(docker: &Docker, image: &str) -> Result<()> {
     let mut output = docker.create_image(options, None, credentials.clone());
     while let Some(line) = output.next().await {
         match line {
-            Ok(update) => info!("pulling: {:?}", update.progress_detail.unwrap()),
+            Ok(update) => info!("pulling: {:?}", update),
             Err(err) => {
                 error!("error pulling image: {err}");
-                bail!("Error pulling image: {err}");
+                bail!("error pulling image: {err}");
             }
         }
     }
@@ -45,7 +42,7 @@ async fn pull_image(docker: &Docker, image: &str) -> Result<()> {
     Ok(())
 }
 
-async fn clean_up_images(docker: &Docker, repo: &str) -> Result<()> {
+async fn clean_up_images_and_containers(docker: &Docker, repo: &str) -> Result<()> {
     let options = Some(bollard::query_parameters::ListImagesOptions {
         all: true,
         ..Default::default()
@@ -61,13 +58,54 @@ async fn clean_up_images(docker: &Docker, repo: &str) -> Result<()> {
 
     let mut seen = HashSet::new();
 
+    let prefix = format!("{}@", repo);
+
     for container in containers {
+        // TODO: clean up this loop's code
+        // TODO: identify (our) containers some other way besides checking the image??? check the name as well???
+        // TODO: maybe store containers (and images) we have created and/or pulled in our state and only delete those?
+        if container.state == Some(bollard::models::ContainerSummaryStateEnum::EXITED) {
+            if container
+                .image
+                .is_some_and(|image| image.starts_with(&prefix))
+            {
+                let inspected = docker
+                    .inspect_container(
+                        container.id.as_ref().unwrap(),
+                        Some(bollard::query_parameters::InspectContainerOptions {
+                            ..Default::default()
+                        }),
+                    )
+                    .await?;
+
+                let state = inspected.state.unwrap();
+                let finished_at =
+                    chrono::DateTime::parse_from_rfc3339(&state.finished_at.unwrap())?.to_utc();
+                if finished_at + chrono::Duration::minutes(5) <= chrono::Utc::now() {
+                    info!(
+                        "deleting old container {:?} {:?}",
+                        container.id, container.names
+                    );
+
+                    docker
+                        .remove_container(
+                            &container.id.unwrap(),
+                            Some(bollard::query_parameters::RemoveContainerOptions {
+                                ..Default::default()
+                            }),
+                        )
+                        .await?;
+                    // don't mark this image as in-use
+                    continue;
+                }
+            }
+        }
+
         if let Some(id) = container.image_id {
             seen.insert(id);
         }
     }
 
-    let prefix = format!("{}@", repo);
     for image in images {
         let mut all_good = true;
         let mut any = None;
@@ -135,8 +173,10 @@ struct State {
     updater_container_id: String,
     new_container_id: String,
     status: Status,
-    // TODO: last_change_at ???
+    last_change_at: Option<chrono::DateTime<chrono::Utc>>,
 }
+
+// TODO: consider splitting starting into creating and starting?
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug)]
 enum Status {
@@ -164,13 +204,14 @@ impl State {
             updater_container_id: "".into(),
             new_container_id: "".into(),
             status: Status::None,
+            last_change_at: None,
         }
     }
 }
 
 impl Storage {
     fn init() -> Result<Storage> {
-        // let mut conn = rusqlite::Connection::open("/data/selfupdater.sqlite3")?;
+        // TODO: wal? other flags?
         let manager = r2d2_sqlite::SqliteConnectionManager::file("/data/selfupdater.sqlite3");
         let pool = r2d2::Pool::new(manager)?;
         //
@@ -253,6 +294,11 @@ async fn create_updater_container(docker: &Docker, state: &State) -> Result<Stri
         }
     }
 
+    // TODO: janky. this is here because if an image gets untagged the above pretty image causes problems (???)
+    if !check_if_image_exists(docker, &pretty_image).await? {
+        pull_image(&docker, &pretty_image).await?;
+    }
+
     let options = bollard::query_parameters::CreateContainerOptions {
         name: Some(format!("{}-{}-updater", state.base_name, state.time_suffix)),
         ..Default::default()
@@ -290,7 +336,10 @@ async fn create_new_container(docker: &Docker, state: &State) -> Result<String> 
         .await?;
 
     let options = bollard::query_parameters::CreateContainerOptions {
-        name: Some(format!("{}-{}-new", state.base_name, state.time_suffix)),
+        name: Some(format!(
+            "{}-{}-new-pending",
+            state.base_name, state.time_suffix
+        )),
         ..Default::default()
     };
 
@@ -320,8 +369,17 @@ async fn rename_container_idempotent(
     container_id: &str,
     name: &str,
 ) -> Result<()> {
-    // TODO: check this is idempotent (and handles missing containers???)
-
+    let current = docker
+        .inspect_container(
+            &container_id,
+            Some(bollard::query_parameters::InspectContainerOptions {
+                ..Default::default()
+            }),
+        )
+        .await?;
+    if current.name.unwrap().trim_start_matches("/") == name {
+        return Ok(());
+    }
     docker
         .rename_container(
             container_id,
@@ -332,9 +390,7 @@ async fn rename_container_idempotent(
 }
 
 async fn stop_container_idempotent(docker: &Docker, container_id: &str) -> Result<()> {
-    // TODO: check this is idempotent (and handles missing containers???)
-
-    // FIXME: I think this update only works when the container is (still) running (???)
+    // TODO: think about missing containers?
     docker
         .update_container(
             container_id,
@@ -347,7 +403,6 @@ async fn stop_container_idempotent(docker: &Docker, container_id: &str) -> Resul
             },
         )
         .await?;
-
     docker
         .stop_container(
             container_id,
@@ -356,12 +411,10 @@ async fn stop_container_idempotent(docker: &Docker, container_id: &str) -> Resul
             }),
         )
         .await?;
-
     Ok(())
 }
 
 async fn restart_container_idempotent(docker: &Docker, container_id: &str) -> Result<()> {
-    // TODO: check this is idempotent
     docker
         .start_container(
             container_id,
@@ -370,7 +423,6 @@ async fn restart_container_idempotent(docker: &Docker, container_id: &str) -> Re
             }),
         )
         .await?;
-
     docker
         .update_container(
             container_id,
@@ -383,7 +435,6 @@ async fn restart_container_idempotent(docker: &Docker, container_id: &str) -> Re
             },
         )
         .await?;
-
     Ok(())
 }
 
@@ -407,25 +458,22 @@ async fn identify_self(docker: &Docker) -> Result<bollard::models::ContainerSumm
         })
         .exactly_one()
         .or(Err(anyhow!("did not find exactly 1 container")))?;
-    // .context("no container found")?;
 
     println!("container id: {:?}", container.id);
     println!("container name: {:?}", container.names);
 
-    // docker.inspect_container(container_name, options)
-
-    // let image_id = container.image_id.unwrap();
     Ok(container)
 }
 
 async fn consider_update(docker: &Docker, storage: &Storage, next_version: String) -> Result<()> {
     let (mut state, version) = storage.get_state()?;
+    // TODO: if current version is none, initialize to current container version?
+    // TODO: set old container id to self if empty? if not empty, complain? (maybe allow resetting if it mentions a non-existent container?)
 
     if state.status == Status::None
         && next_version != state.current_version
         && next_version != state.next_version
     {
-        // TODO: check that we not previously failed on this specific version?
         let self_container = identify_self(&docker).await?;
         state.old_container_id = self_container.id.unwrap();
         state.new_container_id = "".into(); // TODO set these to empty when transitioning to NONE state?
@@ -442,11 +490,12 @@ async fn consider_update(docker: &Docker, storage: &Storage, next_version: Strin
             .into();
         state.status = Status::PullingImage;
         state.next_version = next_version;
+        state.last_change_at = Some(chrono::Utc::now());
         storage.update_state(&state, version)?;
         run_update_from_old(docker, storage).await?;
     }
 
-    // TODO: stop doing work once we enter run_update_from_old (?)
+    // TODO: maybe stop doing work in the main process once we enter run_update_from_old (?)
 
     Ok(())
 }
@@ -455,33 +504,34 @@ async fn update_loop_body(docker: &Docker, storage: &Storage) -> Result<()> {
     let repo = "localhost:5050/selfupdater";
     let next_version = check_for_new_image(docker, repo, "testing").await?;
     consider_update(docker, storage, next_version).await?;
-    clean_up_images(docker, repo).await?;
+    clean_up_images_and_containers(docker, repo).await?;
     Ok(())
 }
 
 // TODO:
 // - if we fail to make progress on a transition, eventually abort (???)
 // - (gracefully) retry transitions
-// - rename to old before spawning new
-// - make sure we stop quickly when asked
-// - (somehow) handle conflicts on compare-and-swap gracefully
-// - (try to) write tests for the docker behavior
+//   - track attempts? have some back-off? have a on-failure? at the start of the attempt (?)
+//
 // - (briefly) write up the plan
 // - end to end tests for multiple updates
-// - wrap docker client in a type
+// - log what we are doing
 // - hook up the health check
-// - clean up old containers
+// - fun end to end test with injected failure before/after every step
 
 async fn run_update_from_old(docker: &Docker, storage: &Storage) -> Result<()> {
     loop {
         let (mut state, mut version) = storage.get_state()?;
         match state.status {
             Status::PullingImage => {
-                if !check_if_image_exists(docker, &state.next_version).await? {
-                    pull_image(docker, &state.next_version).await?;
-                }
+                // if !check_if_image_exists(docker, &state.next_version).await? {
+                // TODO: this is janky... but right now i am having issues with an image having a tag first and then not
+                pull_image(docker, &state.next_version).await?;
+                // }
                 state.status = Status::StartingUpdater;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // on failure, go back to none state?
             }
             Status::StartingUpdater => {
                 if state.updater_container_id == "" {
@@ -490,18 +540,50 @@ async fn run_update_from_old(docker: &Docker, storage: &Storage) -> Result<()> {
                 }
                 restart_container_idempotent(docker, &state.updater_container_id).await?;
                 state.status = Status::StartedUpdater;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // on failure, go to stopping updater state? (and handle missing updater there?)
             }
             Status::StartedUpdater => {
-                // TODO: only do this after a timeout?
-                state.status = Status::StoppingUpdaterAfterFailure;
-                storage.update_state(&state, version)?;
+                // TODO: more elegant timeout somehow?
+                if state.last_change_at.is_some_and(|last_change| {
+                    chrono::Utc::now() >= last_change + chrono::Duration::seconds(10)
+                }) {
+                    state.status = Status::StoppingUpdaterAfterFailure;
+                    state.last_change_at = Some(chrono::Utc::now());
+                    storage.update_state(&state, version)?;
+                } else {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                }
+            }
+            Status::StoppingOld => {
+                // TODO: different approach? graceful shutdown?
+                std::process::exit(0);
             }
             Status::StoppingUpdaterAfterFailure => {
-                stop_container_idempotent(docker, &state.updater_container_id).await?;
+                if state.updater_container_id != "" {
+                    stop_container_idempotent(docker, &state.updater_container_id).await?;
+                }
                 rename_container_idempotent(docker, &state.old_container_id, &state.base_name)
                     .await?;
+                // TODO: only if container exists?
+                if state.new_container_id != "" {
+                    rename_container_idempotent(
+                        docker,
+                        &state.new_container_id,
+                        &format!("{}-{}-new-failed", &state.base_name, &state.time_suffix),
+                    )
+                    .await?;
+                }
                 state.status = Status::None; // TODO: track attempted version so we will not fail again?
+                state.last_change_at = Some(chrono::Utc::now());
+                state.current_version = state.next_version;
+                state.next_version = "".into();
+                state.old_container_id = "".into();
+                state.updater_container_id = "".into();
+                state.new_container_id = "".into();
+                state.base_name = "".into();
+                state.time_suffix = "".into();
                 // TODO: check that all other containers are stopped?
                 // TODO: check that container names make sense?
                 storage.update_state(&state, version)?;
@@ -509,28 +591,30 @@ async fn run_update_from_old(docker: &Docker, storage: &Storage) -> Result<()> {
             _ => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
         }
     }
-
-    // Ok(())
 }
 
 async fn run_update_from_updater(docker: &Docker, storage: &Storage) -> Result<()> {
     loop {
         let (mut state, mut version) = storage.get_state()?;
         match state.status {
-            Status::StartingUpdater => {
+            Status::StartedUpdater => {
                 state.status = Status::StoppingOld;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // on failure, we will be stopped by old
             }
             Status::StoppingOld => {
                 stop_container_idempotent(docker, &state.old_container_id).await?;
                 rename_container_idempotent(
                     docker,
                     &state.old_container_id,
-                    &format!("{}-{}-old", &state.base_name, &state.time_suffix),
+                    &format!("{}-{}-old-pending", &state.base_name, &state.time_suffix),
                 )
                 .await?;
                 state.status = Status::StartingNew;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // TODO: on failure, go to restarting old?
             }
             Status::StartingNew => {
                 if state.new_container_id == "" {
@@ -539,24 +623,45 @@ async fn run_update_from_updater(docker: &Docker, storage: &Storage) -> Result<(
                 }
                 restart_container_idempotent(docker, &state.new_container_id).await?;
                 state.status = Status::StartedNew;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // TODO: on failure, go to stopping new (and make stopping new tolerate missing container)
             }
-            Status::StartedNew => {}
+            Status::StartedNew => {
+                if state.last_change_at.is_some_and(|last_change| {
+                    chrono::Utc::now() >= last_change + chrono::Duration::seconds(10)
+                }) {
+                    state.status = Status::StoppingNew;
+                    state.last_change_at = Some(chrono::Utc::now());
+                    storage.update_state(&state, version)?;
+                } else {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                }
+                // this is the failure handler
+            }
             Status::StoppingNew => {
-                stop_container_idempotent(docker, &state.new_container_id).await?;
+                if state.new_container_id != "" {
+                    stop_container_idempotent(docker, &state.new_container_id).await?;
+                }
                 state.status = Status::RestartingOld;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // no backup handler in case of failure
             }
             Status::RestartingOld => {
                 restart_container_idempotent(docker, &state.old_container_id).await?;
                 state.status = Status::StoppingUpdaterAfterFailure;
+                state.last_change_at = Some(chrono::Utc::now());
                 storage.update_state(&state, version)?;
+                // cannot fail (hopefully)
+            }
+            Status::StoppingUpdaterAfterSuccess | Status::StoppingUpdaterAfterFailure => {
+                // TODO: graceful exit somehow?
+                std::process::exit(0)
             }
             _ => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
         }
     }
-
-    // Ok(())
 }
 
 async fn run_update_from_new(docker: &Docker, storage: &Storage) -> Result<()> {
@@ -568,27 +673,43 @@ async fn run_update_from_new(docker: &Docker, storage: &Storage) -> Result<()> {
                 // do health check... then?
                 if healthy {
                     state.status = Status::StoppingUpdaterAfterSuccess;
+                    state.last_change_at = Some(chrono::Utc::now());
                 } else {
                     state.status = Status::StoppingNew;
+                    state.last_change_at = Some(chrono::Utc::now());
                 }
                 storage.update_state(&state, version)?;
             }
+            Status::StoppingNew => {
+                // TODO: graceful exit somehow?
+                std::process::exit(0)
+            }
             Status::StoppingUpdaterAfterSuccess => {
                 stop_container_idempotent(docker, &state.updater_container_id).await?;
-
                 rename_container_idempotent(docker, &state.new_container_id, &state.base_name)
                     .await?;
-
+                rename_container_idempotent(
+                    docker,
+                    &state.old_container_id,
+                    &format!("{}-{}-old-replaced", &state.base_name, &state.time_suffix),
+                )
+                .await?;
                 state.status = Status::None;
+                state.last_change_at = Some(chrono::Utc::now());
+                state.current_version = state.next_version;
+                state.next_version = "".into();
+                state.old_container_id = "".into();
+                state.updater_container_id = "".into();
+                state.new_container_id = "".into();
+                state.base_name = "".into();
+                state.time_suffix = "".into();
                 storage.update_state(&state, version)?;
-
                 return Ok(());
+                // cannot fail (hopefully)
             }
             _ => tokio::time::sleep(tokio::time::Duration::from_secs(1)).await,
         }
     }
-
-    // Ok(())
 }
 
 async fn cancellation_on_signal() -> Result<CancellationToken> {
@@ -640,6 +761,7 @@ async fn main() -> Result<()> {
 
     if autoupdate_enabled {
         // do some sanity checks: only run if have access to docker socket, sqlite3, we know ourselves, and we are marked auto restart and not delete on exit
+        // TODO: if we are not running a named tag, do an explicit update to the current sha256??? (or even refuse to start???)
 
         let docker = Docker::connect_with_local_defaults()?;
         let self_container = identify_self(&docker).await?;
@@ -651,8 +773,8 @@ async fn main() -> Result<()> {
         info!("read state {:?}", state);
 
         if state.status != Status::None {
-            // some kind of update is running. figure out if we are the old or the new version and run appropriately?
             //
+            // some kind of update is running. figure out if we are the old or the new version and run appropriately?
             // TODO: i think we can safely run "the app" below even while the update is running (except if we migrate stuff and we haven't yet committed to upgrading by passing a healthcheck??? tricky)
             if &state.old_container_id == self_container.id.as_ref().unwrap() {
                 run_update_from_old(&docker, &storage).await?;
@@ -676,7 +798,7 @@ async fn main() -> Result<()> {
         });
     }
 
-    info!("i'm the newer version");
+    info!("i'm the newerer version");
 
     loop {
         tokio::select! {
@@ -691,6 +813,93 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn cleanup(docker: &Docker) {
+        for name in vec!["selfupdater-unittest-a", "selfupdater-unittest-b"] {
+            _ = docker
+                .stop_container(
+                    name,
+                    Some(bollard::query_parameters::StopContainerOptions {
+                        signal: Some("kill".into()),
+                        t: None,
+                    }),
+                )
+                .await;
+            _ = docker
+                .remove_container(
+                    name,
+                    Some(bollard::query_parameters::RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+        }
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn docker_idempotence() -> Result<()> {
+        let docker = Docker::connect_with_local_defaults()?;
+        cleanup(&docker).await;
+
+        let test_image = "debian:bookworm-slim";
+
+        if !check_if_image_exists(&docker, test_image).await? {
+            info!("pulling test image");
+            pull_image(&docker, test_image).await?;
+        }
+
+        info!("creating test container");
+        let test_container = docker
+            .create_container(
+                Some(bollard::query_parameters::CreateContainerOptions {
+                    name: Some("selfupdater-unittest-a".into()),
+                    ..Default::default()
+                }),
+                bollard::models::ContainerCreateBody {
+                    image: Some(test_image.into()),
+                    ..Default::default()
+                },
+            )
+            .await?;
+
+        for _ in 0..10 {
+            info!("starting first time");
+            restart_container_idempotent(&docker, &test_container.id).await?;
+            info!("starting second time");
+            restart_container_idempotent(&docker, &test_container.id).await?;
+
+            info!("stopping first time");
+            stop_container_idempotent(&docker, &test_container.id).await?;
+            info!("stopping second time");
+            stop_container_idempotent(&docker, &test_container.id).await?;
+
+            info!("renaming to b first time");
+            rename_container_idempotent(&docker, &test_container.id, "selfupdater-unittest-b")
+                .await?;
+            info!("renaming to b second time");
+            rename_container_idempotent(&docker, &test_container.id, "selfupdater-unittest-b")
+                .await?;
+
+            info!("renaming to a first time");
+            rename_container_idempotent(&docker, &test_container.id, "selfupdater-unittest-a")
+                .await?;
+            info!("renaming to a first time");
+            rename_container_idempotent(&docker, &test_container.id, "selfupdater-unittest-a")
+                .await?;
+        }
+
+        // bail!("wtf");
+
+        cleanup(&docker).await;
+        Ok(())
+    }
 }
 
 /*
