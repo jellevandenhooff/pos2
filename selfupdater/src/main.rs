@@ -176,7 +176,8 @@ struct State {
     last_change_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-// TODO: consider splitting starting into creating and starting?
+// flow: create container, store id, start container
+// if we crash between create container and store id... hopefully we can clean it up eventually with some background scan for containers
 
 #[derive(PartialEq, Eq, Serialize, Deserialize, Debug)]
 enum Status {
@@ -273,10 +274,6 @@ impl Storage {
         Ok((serde_json::from_str(&state_str)?, version))
     }
 }
-
-// flow: create container, store id, start container
-// if we crash between create container and store id... hopefully we can clean it up eventually with some background scan for containers
-// TODO: logging options (for rotating logs?)
 
 async fn create_updater_container(docker: &Docker, state: &State) -> Result<String> {
     let current_container = docker
@@ -467,7 +464,12 @@ async fn identify_self(docker: &Docker) -> Result<bollard::models::ContainerSumm
     Ok(container)
 }
 
-async fn consider_update(docker: &Docker, storage: &Storage, next_version: String) -> Result<()> {
+async fn consider_update(
+    docker: &Docker,
+    storage: &Storage,
+    next_version: String,
+    cancellation: CancellationToken,
+) -> Result<()> {
     let (mut state, version) = storage.get_state()?;
     // TODO: if current version is none, initialize to current container version?
     // TODO: set old container id to self if empty? if not empty, complain? (maybe allow resetting if it mentions a non-existent container?)
@@ -494,7 +496,7 @@ async fn consider_update(docker: &Docker, storage: &Storage, next_version: Strin
         state.next_version = next_version;
         state.last_change_at = Some(chrono::Utc::now());
         storage.update_state(&state, version)?;
-        run_update(docker, storage, update_from_old_step).await?;
+        run_update(docker, storage, update_from_old_step, cancellation).await?;
     }
 
     // TODO: maybe stop doing work in the main process once we enter run_update_from_old (?)
@@ -502,10 +504,14 @@ async fn consider_update(docker: &Docker, storage: &Storage, next_version: Strin
     Ok(())
 }
 
-async fn update_loop_body(docker: &Docker, storage: &Storage) -> Result<()> {
+async fn update_loop_body(
+    docker: &Docker,
+    storage: &Storage,
+    cancellation: CancellationToken,
+) -> Result<()> {
     let repo = "localhost:5050/selfupdater";
     let next_version = check_for_new_image(docker, repo, "testing").await?;
-    consider_update(docker, storage, next_version).await?;
+    consider_update(docker, storage, next_version, cancellation).await?;
     clean_up_images_and_containers(docker, repo).await?;
     Ok(())
 }
@@ -516,34 +522,35 @@ async fn update_loop_body(docker: &Docker, storage: &Storage) -> Result<()> {
 // - log what we are doing
 // - hook up the health check
 // - fun end to end test with injected failure before/after every step
+// - store base name in env var (or label)
+// - logging options (for rotating logs?)
+// - timeouts on docker API calls / external operations?
+// - ensure running container always has simple name??
 
 enum StepResult {
     ShutdownProcess,
     Transition(State),
     Sleep,
+    Retry,
     StateMachineDone,
 }
-
-// TODO: timeouts on API calls / external operations?
 
 async fn run_update(
     docker: &Docker,
     storage: &Storage,
-    step_func: impl AsyncFn(&Docker, State) -> Result<StepResult>,
+    step_func: impl AsyncFn(&Docker, State) -> StepResult,
+    cancellation_token: CancellationToken,
 ) -> Result<()> {
     loop {
         let (state, old_version) = storage.get_state()?;
         match step_func(docker, state).await {
-            Err(err) => {
-                error!("failed to do step: {}; will wait and retry", err);
-                // TODO: exponential back-off? bound number of failures?
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            }
-            Ok(StepResult::ShutdownProcess) => {
+            StepResult::ShutdownProcess => {
                 // TODO: this leads to immediately restarting because of the restart policy... instead, just handle the cancellation token better?
+                // do not shut ourselves down, but wait for a signal (to prevent immediate restart with the policy)
+                cancellation_token.cancelled().await;
                 std::process::exit(0);
             }
-            Ok(StepResult::Transition(mut new_state)) => {
+            StepResult::Transition(mut new_state) => {
                 new_state.last_change_at = Some(chrono::Utc::now());
                 match storage.update_state(&new_state, old_version) {
                     Ok(_) => {
@@ -556,36 +563,54 @@ async fn run_update(
                     }
                 }
             }
-            Ok(StepResult::Sleep) => {
+            StepResult::Retry => {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
-            Ok(StepResult::StateMachineDone) => return Ok(()),
+            StepResult::Sleep => {
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            }
+            StepResult::StateMachineDone => return Ok(()),
         }
     }
 }
 
-async fn update_from_old_step(docker: &Docker, mut state: State) -> Result<StepResult> {
+async fn update_from_old_step(docker: &Docker, mut state: State) -> StepResult {
     match state.status {
         Status::PullingImage => {
-            // if !check_if_image_exists(docker, &state.next_version).await? {
-            // TODO: this is janky... but right now i am having issues with an image having a tag first and then not
-            pull_image(docker, &state.next_version).await?;
-            // }
+            if let Err(err) = pull_image(docker, &state.next_version).await {
+                // TODO: retry a couple of times?
+                error!("failed to pull image: {}; will rollback", err);
+                state.status = Status::StoppingUpdaterAfterFailure;
+                return StepResult::Transition(state);
+            }
             state.status = Status::CreatingUpdater;
-            Ok(StepResult::Transition(state))
-            // on failure, go back to none state?
+            StepResult::Transition(state)
         }
         Status::CreatingUpdater => {
-            state.updater_container_id = create_updater_container(docker, &state).await?;
+            match create_updater_container(docker, &state).await {
+                Ok(id) => {
+                    state.updater_container_id = id;
+                }
+                Err(err) => {
+                    // TODO: retry a couple of times?
+                    error!("failed to create updater: {}; will rollback", err);
+                    state.status = Status::StoppingUpdaterAfterFailure;
+                    return StepResult::Transition(state);
+                }
+            }
             state.status = Status::StartingUpdater;
-            Ok(StepResult::Transition(state))
-            // on failure, go to stopping updater state? (and handle missing updater there?)
+            StepResult::Transition(state)
         }
         Status::StartingUpdater => {
-            start_container_idempotent(docker, &state.updater_container_id).await?;
+            if let Err(err) = start_container_idempotent(docker, &state.updater_container_id).await
+            {
+                // TODO: retry a couple of times?
+                error!("failed to start updater: {}", err);
+                state.status = Status::StoppingUpdaterAfterFailure;
+                return StepResult::Transition(state);
+            }
             state.status = Status::StartedUpdater;
-            Ok(StepResult::Transition(state))
-            // on failure, go to stopping updater state? (and handle missing updater there?)
+            StepResult::Transition(state)
         }
         Status::StartedUpdater => {
             // TODO: more elegant timeout somehow?
@@ -593,26 +618,34 @@ async fn update_from_old_step(docker: &Docker, mut state: State) -> Result<StepR
                 chrono::Utc::now() >= last_change + chrono::Duration::seconds(10)
             }) {
                 state.status = Status::StoppingUpdaterAfterFailure;
-                Ok(StepResult::Transition(state))
+                StepResult::Transition(state)
             } else {
-                Ok(StepResult::Sleep)
+                StepResult::Sleep
             }
         }
-        Status::StoppingOld => Ok(StepResult::ShutdownProcess),
+        Status::StoppingOld => StepResult::ShutdownProcess,
         Status::StoppingUpdaterAfterFailure => {
             if state.updater_container_id != "" {
-                stop_container_idempotent(docker, &state.updater_container_id).await?;
-            }
-            rename_container_idempotent(docker, &state.old_container_id, &state.base_name).await?;
-            // TODO: only if container exists?
-            if state.new_container_id != "" {
-                rename_container_idempotent(
+                if let Err(err) =
+                    stop_container_idempotent(docker, &state.updater_container_id).await
+                {
+                    // TODO: ignore if missing?
+                    error!("failed to stop updater: {}; will retry", err);
+                    return StepResult::Retry;
+                }
+                if let Err(err) = rename_container_idempotent(
                     docker,
-                    &state.new_container_id,
-                    &format!("{}-{}-new-failed", &state.base_name, &state.time_suffix),
+                    &state.updater_container_id,
+                    &format!("{}-{}-updater-failed", &state.base_name, &state.time_suffix),
                 )
-                .await?;
+                .await
+                {
+                    // TODO: ignore if this keeps failing?
+                    error!("failed to rename updater: {}; will retry", err);
+                    return StepResult::Retry;
+                }
             }
+            // TODO: only if container exists?
             state.status = Status::None; // TODO: track attempted version so we will not fail again?
             state.current_version = state.next_version;
             state.next_version = "".into();
@@ -623,77 +656,131 @@ async fn update_from_old_step(docker: &Docker, mut state: State) -> Result<StepR
             state.time_suffix = "".into();
             // TODO: check that all other containers are stopped?
             // TODO: check that container names make sense?
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
-        Status::None => Ok(StepResult::StateMachineDone),
-        _ => Ok(StepResult::Sleep),
+        Status::None => StepResult::StateMachineDone,
+        _ => StepResult::Sleep,
     }
 }
 
-async fn update_from_updater_step(docker: &Docker, mut state: State) -> Result<StepResult> {
+async fn update_from_updater_step(docker: &Docker, mut state: State) -> StepResult {
     match state.status {
         Status::StartedUpdater => {
             state.status = Status::StoppingOld;
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
             // on failure, we will be stopped by old
         }
         Status::StoppingOld => {
-            stop_container_idempotent(docker, &state.old_container_id).await?;
-            rename_container_idempotent(
+            if let Err(err) = stop_container_idempotent(docker, &state.old_container_id).await {
+                // TODO: retry a couple of times?
+                error!("failed to stop old: {}; will rollback", err);
+                state.status = Status::RestartingOld;
+                return StepResult::Transition(state);
+            }
+            if let Err(err) = rename_container_idempotent(
                 docker,
                 &state.old_container_id,
                 &format!("{}-{}-old-pending", &state.base_name, &state.time_suffix),
             )
-            .await?;
+            .await
+            {
+                // TODO: retry a couple of times?
+                error!("failed to rename old: {}; will rollback", err);
+                state.status = Status::RestartingOld;
+                return StepResult::Transition(state);
+            }
             state.status = Status::CreatingNew;
-            // TODO: on failure, go to restarting old?
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
         Status::CreatingNew => {
-            state.new_container_id = create_new_container(docker, &state).await?;
+            match create_new_container(docker, &state).await {
+                Ok(id) => {
+                    state.new_container_id = id;
+                }
+                Err(err) => {
+                    // TODO: retry a couple of times?
+                    error!("failed to create new: {}; will rollback", err);
+                    state.status = Status::RestartingOld;
+                    return StepResult::Transition(state);
+                }
+            }
             state.status = Status::StartingNew;
             // TODO: on failure, go to stopping new (and make stopping new tolerate missing container)
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
         Status::StartingNew => {
-            start_container_idempotent(docker, &state.new_container_id).await?;
+            if let Err(err) =
+                rename_container_idempotent(docker, &state.new_container_id, &state.base_name).await
+            {
+                error!("failed to rename new: {}; will rollback", err);
+                state.status = Status::StoppingNew;
+                return StepResult::Transition(state);
+            }
+            if let Err(err) = start_container_idempotent(docker, &state.new_container_id).await {
+                // TODO: retry a couple of times?
+                error!("failed to start new: {}; will rollback", err);
+                state.status = Status::StoppingNew;
+                return StepResult::Transition(state);
+            }
             state.status = Status::StartedNew;
-            // TODO: on failure, go to stopping new (and make stopping new tolerate missing container)
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
         Status::StartedNew => {
             if state.last_change_at.is_some_and(|last_change| {
                 chrono::Utc::now() >= last_change + chrono::Duration::seconds(10)
             }) {
                 state.status = Status::StoppingNew;
-                Ok(StepResult::Transition(state))
+                StepResult::Transition(state)
             } else {
-                Ok(StepResult::Sleep)
+                StepResult::Sleep
             }
             // this is the failure handler
         }
         Status::StoppingNew => {
             if state.new_container_id != "" {
-                stop_container_idempotent(docker, &state.new_container_id).await?;
+                if let Err(err) = stop_container_idempotent(docker, &state.new_container_id).await {
+                    // TODO: ignore if missing?
+                    error!("failed to stop new: {}; will retry", err);
+                    return StepResult::Retry;
+                }
+                if let Err(err) = rename_container_idempotent(
+                    docker,
+                    &state.new_container_id,
+                    &format!("{}-{}-new-failed", &state.base_name, &state.time_suffix),
+                )
+                .await
+                {
+                    // TODO: ignore if missing?
+                    error!("failed to rename old: {}; will retry", err);
+                    return StepResult::Retry;
+                }
             }
             state.status = Status::RestartingOld;
-            Ok(StepResult::Transition(state))
-            // no backup handler in case of failure
+            StepResult::Transition(state)
         }
         Status::RestartingOld => {
-            start_container_idempotent(docker, &state.old_container_id).await?;
+            if let Err(err) =
+                rename_container_idempotent(docker, &state.old_container_id, &state.base_name).await
+            {
+                error!("failed to rename old: {}; will retry", err);
+                return StepResult::Retry;
+            }
+            if let Err(err) = start_container_idempotent(docker, &state.old_container_id).await {
+                error!("failed to start old: {}; will retry", err);
+                return StepResult::Retry;
+            }
             state.status = Status::StoppingUpdaterAfterFailure;
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
             // cannot fail (hopefully)
         }
         Status::StoppingUpdaterAfterSuccess | Status::StoppingUpdaterAfterFailure => {
-            Ok(StepResult::ShutdownProcess)
+            StepResult::ShutdownProcess
         }
-        _ => Ok(StepResult::Sleep),
+        _ => StepResult::Sleep,
     }
 }
 
-async fn update_from_new_step(docker: &Docker, mut state: State) -> Result<StepResult> {
+async fn update_from_new_step(docker: &Docker, mut state: State) -> StepResult {
     match state.status {
         Status::StartedNew => {
             // configurable with env var for testing...
@@ -701,25 +788,47 @@ async fn update_from_new_step(docker: &Docker, mut state: State) -> Result<StepR
             if let Ok(value) = std::env::var("TEST_HEALTHY")
                 && value != ""
             {
-                healthy = value.parse().context("could not parse TEST_HEALTHY")?;
+                healthy = value.parse().unwrap_or(false); // .ok().on_record(id, values, ctx); context("could not parse TEST_HEALTHY")?;
             };
             if healthy {
                 state.status = Status::StoppingUpdaterAfterSuccess;
             } else {
                 state.status = Status::StoppingNew;
             }
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
-        Status::StoppingNew => Ok(StepResult::ShutdownProcess),
+        Status::StoppingNew => StepResult::ShutdownProcess,
         Status::StoppingUpdaterAfterSuccess => {
-            stop_container_idempotent(docker, &state.updater_container_id).await?;
-            rename_container_idempotent(docker, &state.new_container_id, &state.base_name).await?;
-            rename_container_idempotent(
+            if let Err(err) = stop_container_idempotent(docker, &state.updater_container_id).await {
+                // TODO: ignore if missing?
+                error!("failed to stop updater: {}; will retry", err);
+                return StepResult::Retry;
+            }
+            if let Err(err) = rename_container_idempotent(
+                docker,
+                &state.updater_container_id,
+                &format!(
+                    "{}-{}-updater-succeeded",
+                    &state.base_name, &state.time_suffix
+                ),
+            )
+            .await
+            {
+                // TODO: ignore if keeps failing or missing?
+                error!("failed to rename updater: {}; will retry", err);
+                return StepResult::Retry;
+            }
+            if let Err(err) = rename_container_idempotent(
                 docker,
                 &state.old_container_id,
                 &format!("{}-{}-old-replaced", &state.base_name, &state.time_suffix),
             )
-            .await?;
+            .await
+            {
+                // TODO: ignore if keeps failing or missing?
+                error!("failed to rename old: {}; will retry", err);
+                return StepResult::Retry;
+            }
             state.status = Status::None;
             state.current_version = state.next_version;
             state.next_version = "".into();
@@ -728,10 +837,10 @@ async fn update_from_new_step(docker: &Docker, mut state: State) -> Result<StepR
             state.new_container_id = "".into();
             state.base_name = "".into();
             state.time_suffix = "".into();
-            Ok(StepResult::Transition(state))
+            StepResult::Transition(state)
         }
-        Status::None => Ok(StepResult::StateMachineDone),
-        _ => Ok(StepResult::Sleep),
+        Status::None => StepResult::StateMachineDone,
+        _ => StepResult::Sleep,
     }
 }
 
@@ -777,7 +886,16 @@ async fn main() -> Result<()> {
         let docker = Docker::connect_with_local_defaults()?;
         let storage = Storage::init()?;
 
-        run_update(&docker, &storage, update_from_updater_step).await?;
+        // TODO: sanity check here also?
+        // make sure our id is as expected, we have access to things, ...?
+
+        run_update(
+            &docker,
+            &storage,
+            update_from_updater_step,
+            cancellation.clone(),
+        )
+        .await?;
 
         return Ok(());
     }
@@ -800,9 +918,21 @@ async fn main() -> Result<()> {
             // some kind of update is running. figure out if we are the old or the new version and run appropriately?
             // TODO: i think we can safely run "the app" below even while the update is running (except if we migrate stuff and we haven't yet committed to upgrading by passing a healthcheck??? tricky)
             if &state.old_container_id == self_container.id.as_ref().unwrap() {
-                run_update(&docker, &storage, update_from_old_step).await?;
+                run_update(
+                    &docker,
+                    &storage,
+                    update_from_old_step,
+                    cancellation.clone(),
+                )
+                .await?;
             } else if &state.new_container_id == self_container.id.as_ref().unwrap() {
-                run_update(&docker, &storage, update_from_new_step).await?;
+                run_update(
+                    &docker,
+                    &storage,
+                    update_from_new_step,
+                    cancellation.clone(),
+                )
+                .await?;
             } else {
                 bail!("confusing state");
                 // complain. we are running with a selfupdate state we don't recognize so maybe it's shared or something? should be cleaned up before we run.
@@ -811,14 +941,19 @@ async fn main() -> Result<()> {
         }
 
         // ok... now we are running successfully. run a checker in the background:
-        tokio::spawn(async move {
-            loop {
-                if let Err(err) = update_loop_body(&docker, &storage).await {
-                    error!("update loop error: {}", err);
+        {
+            let cancellation = cancellation.clone();
+            tokio::spawn(async move {
+                loop {
+                    if let Err(err) =
+                        update_loop_body(&docker, &storage, cancellation.clone()).await
+                    {
+                        error!("update loop error: {}", err);
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            }
-        });
+            });
+        }
     }
 
     info!("i'm the newerer version");
