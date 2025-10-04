@@ -18,7 +18,7 @@ reqwest = "0.12.23"
 rusqlite = { version = "0.37.0", features = ["bundled", "serde_json"] }
 rustix = { version = "1.1.2", features = ["system"] }
 serde = { version = "1.0.227", features = ["derive"] }
-serde_json = "1.0.145"
+serde_json = { version = "1.0.145", features = ["preserve_order"] }
 test-log = { version = "0.2.18", features = ["trace"] }
 tokio = { version = "1.47.1", features = ["full"] }
 tokio-util = { version = "0.7.16", features = ["full"] }

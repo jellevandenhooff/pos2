@@ -23,10 +23,12 @@ FROM debian:bookworm-slim AS app
 
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=build /app/selfupdater/target/release/selfupdater /selfupdater
+RUN ln -s /selfupdater /selfupdater-helper
 
 ARG TEST_HEALTHY
 ARG TEST_VERSION
 ENV TEST_VERSION=${TEST_VERSION}
 ENV TEST_HEALTHY=${TEST_HEALTHY}
+
 
 CMD ["/selfupdater"]
