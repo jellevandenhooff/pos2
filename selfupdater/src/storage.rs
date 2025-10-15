@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use bollard::{Docker, models::*, query_parameters::*};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -19,17 +20,24 @@ impl Storage {
 
         let tx = conn.transaction()?;
 
-        if !tx.table_exists(Some("main"), "schema_version")? {
-            // TODO: add some uuid to db schema so we don't mix up migrations?
-            tx.execute(
-                "CREATE TABLE schema_version (version TEXT NOT NULL) STRICT",
-                [],
-            )?;
-            tx.execute("INSERT INTO schema_version (version) VALUES (?1)", ["v1"])?;
-        }
+        // if !tx.table_exists(Some("main"), "schema_version")? {
+        // TODO: add some uuid to db schema so we don't mix up migrations?
+        tx.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version (version TEXT NOT NULL) STRICT",
+            [],
+        )?;
+        // }
 
-        let mut version: String =
-            tx.query_one("SELECT version FROM schema_version", [], |row| row.get(0))?;
+        let mut version: String = match tx
+            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .optional()?
+        {
+            Some(version) => version,
+            None => {
+                tx.execute("INSERT INTO schema_version (version) VALUES (?1)", ["v1"])?;
+                "v1".into()
+            }
+        };
 
         loop {
             if version == "v1" {
@@ -65,7 +73,7 @@ impl Storage {
         let tx = conn.transaction()?;
 
         // fetch the old state so we can print a diff
-        let (state_str, version): (String, i64) = tx.query_one(
+        let (state_str, version): (String, i64) = tx.query_row(
             "SELECT state, version FROM state WHERE id = ?1",
             ["selfupdate"],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -105,7 +113,7 @@ impl Storage {
     }
 
     pub(crate) fn get_state(&self) -> Result<(State, i64)> {
-        let (state_str, version): (String, i64) = self.pool.get()?.query_one(
+        let (state_str, version): (String, i64) = self.pool.get()?.query_row(
             "SELECT state, version FROM state WHERE id = ?1",
             ["selfupdate"],
             |row| Ok((row.get(0)?, row.get(1)?)),

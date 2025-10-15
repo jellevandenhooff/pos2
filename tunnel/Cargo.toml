@@ -26,7 +26,7 @@ hyper = { version = "1.6.0", features = ["client", "server", "http1"] }
 hyper-rustls = { version = "0.27.6", features = ["ring"] }
 hyper-util = { version = "0.1.13", features = ["http1", "http2", "server", "server-auto", "tokio"] }
 inquire = "0.7.5"
-instant-acme = { git = "https://github.com/djc/instant-acme.git", version = "0.8.0", features = ["hyper-rustls", "ring", "time", "x509-parser"], default-features = false }
+instant-acme = { version = "0.8.3", features = ["hyper-rustls", "ring", "time", "x509-parser"], default-features = false }
 maud = "0.27.0"
 oauth2 = "5.0.0"
 once_cell = "1.21.3"

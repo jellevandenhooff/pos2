@@ -9,8 +9,8 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use instant_acme::{
-    Account, AuthorizationStatus, CertificateIdentifier, ChallengeType, HttpClient, Identifier,
-    NewAccount, NewOrder, OrderStatus,
+    Account, AuthorizationStatus, BodyWrapper, CertificateIdentifier, ChallengeType, HttpClient,
+    Identifier, NewAccount, NewOrder, OrderStatus, RetryPolicy,
 };
 use rand::Rng;
 use rand::SeedableRng;
@@ -29,7 +29,7 @@ use tokio::time::sleep;
 use crate::dnsserver::{self};
 
 struct CustomHttpClient(
-    HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, Full<bytes::Bytes>>,
+    HyperClient<hyper_rustls::HttpsConnector<HttpConnector>, BodyWrapper<bytes::Bytes>>,
 );
 
 // TODO: ipv6
@@ -54,7 +54,7 @@ impl CustomHttpClient {
 impl instant_acme::HttpClient for CustomHttpClient {
     fn request(
         &self,
-        req: Request<Full<bytes::Bytes>>,
+        req: Request<BodyWrapper<bytes::Bytes>>,
     ) -> Pin<
         Box<dyn Future<Output = Result<instant_acme::BytesResponse, instant_acme::Error>> + Send>,
     > {
@@ -62,7 +62,7 @@ impl instant_acme::HttpClient for CustomHttpClient {
         Box::pin(async move {
             match fut.await {
                 Ok(rsp) => Ok(instant_acme::BytesResponse::from(rsp)),
-                Err(e) => Err(e.into()),
+                Err(e) => Err(instant_acme::Error::Other(Box::new(e))),
             }
         })
     }
@@ -234,7 +234,10 @@ pub async fn getaccount(env: &crate::common::Environment) -> Result<Account> {
     // try logging in with the credentials
     let account = match credentials {
         Some(credentials) => {
-            match Account::from_credentials_and_http(credentials, http_client).await {
+            match Account::builder_with_http(http_client)
+                .from_credentials(credentials)
+                .await
+            {
                 Ok(result) => {
                     println!("logged in successfully...");
                     result
@@ -256,17 +259,17 @@ pub async fn getaccount(env: &crate::common::Environment) -> Result<Account> {
         }
         None => {
             // let (account, credentials) =
-            let (account, credentials) = Account::create_with_http(
-                &NewAccount {
-                    contact: &[],
-                    terms_of_service_agreed: true,
-                    only_return_existing: false,
-                },
-                env.acme_server_url.clone(),
-                None,
-                http_client,
-            )
-            .await?;
+            let (account, credentials) = Account::builder_with_http(http_client)
+                .create(
+                    &NewAccount {
+                        contact: &[],
+                        terms_of_service_agreed: true,
+                        only_return_existing: false,
+                    },
+                    env.acme_server_url.clone(),
+                    None,
+                )
+                .await?;
 
             tokio::fs::write(
                 &credentials_path,
@@ -357,7 +360,7 @@ pub async fn ordercert(
 
     // Exponentially back off until the order becomes ready or invalid.
 
-    let status = order.poll(5, Duration::from_millis(250)).await?;
+    let status = order.poll_ready(&RetryPolicy::new()).await?;
     if status != OrderStatus::Ready {
         return Err(anyhow::anyhow!("unexpected order status: {status:?}"));
     }
@@ -397,7 +400,7 @@ fn get_certificate_id(certificate: &String) -> Result<CertificateIdentifier<'_>>
 
 async fn get_renewal_info(account: &Account, cert: &String) -> Result<CertificateInfo> {
     let id = get_certificate_id(cert)?;
-    let renewal_info = account.renewal_info(&id).await?;
+    let (renewal_info, _refetch_duration_hint) = account.renewal_info(&id).await?;
 
     // renew: handle AlreadyReplaced
     // renew: handle mismatched account
