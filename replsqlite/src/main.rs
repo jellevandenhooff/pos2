@@ -35,7 +35,8 @@ async fn main() -> Result<()> {
     if args.get(1).is_some_and(|s| s == "client") {
         tokio::task::spawn_blocking(|| -> Result<()> {
             let vfs_name = "replvfs";
-            let vfs = replvfs::ReplVfs::new();
+            let vfs =
+                replvfs::ReplVfs::new(replvfs::Tokio::Handle(tokio::runtime::Handle::current()));
 
             sqlite_plugin::vfs::register_static(
                 CString::new(vfs_name).unwrap(),

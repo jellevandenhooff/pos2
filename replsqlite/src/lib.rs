@@ -30,16 +30,13 @@ pub unsafe extern "C" fn sqlite3_extension_init(
 
     tracing::info!("hello world");
 
-    /*
-    let res = tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
-        .block_on(async {
-            let res = tokio::task::spawn_blocking(|| -> std::os::raw::c_int {
-            */
+        .unwrap();
+
     let vfs_name = "replvfs";
-    let vfs = crate::replvfs::ReplVfs::new();
+    let vfs = crate::replvfs::ReplVfs::new(replvfs::Tokio::Runtime(runtime));
 
     if let Err(err) = unsafe {
         register_dynamic(

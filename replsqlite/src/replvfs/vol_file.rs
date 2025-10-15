@@ -132,18 +132,13 @@ pub struct TestDbServer {
 
 #[derive(Debug)]
 pub struct RemoteDbServer {
-    rt: tokio::runtime::Runtime,
+    rt: tokio::runtime::Handle,
     client: reqwest::Client,
     server: String,
 }
 
 impl RemoteDbServer {
-    pub fn new() -> Arc<Self> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
+    pub fn new(rt: tokio::runtime::Handle) -> Arc<Self> {
         Arc::new(RemoteDbServer {
             rt: rt, // rt.handle().clone(),
             // rt: tokio::runtime::Handle::current().clone(),

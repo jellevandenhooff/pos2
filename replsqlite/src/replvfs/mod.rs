@@ -134,16 +134,40 @@ fn random_string() -> String {
     id.hyphenated().to_string()
 }
 
+pub enum Tokio {
+    Handle(tokio::runtime::Handle),
+    Runtime(tokio::runtime::Runtime),
+}
+
+impl Tokio {
+    #[track_caller]
+    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        match self {
+            Tokio::Handle(handle) => handle.block_on(future),
+            Tokio::Runtime(runtime) => runtime.block_on(future),
+        }
+    }
+
+    pub fn handle(&self) -> tokio::runtime::Handle {
+        match self {
+            Tokio::Handle(handle) => handle.clone(),
+            Tokio::Runtime(runtime) => runtime.handle().clone(),
+        }
+    }
+}
+
 pub struct ReplVfs {
     servers: Mutex<HashMap<String, Arc<RemoteDbServer>>>,
 
     pending_opens: Mutex<HashMap<std::thread::ThreadId, DbClientHandle>>,
+
+    tokio: Tokio,
 }
 
 impl ReplVfs {
-    pub fn new(/* runtime: Runtime */) -> Self {
+    pub fn new(tokio: Tokio) -> Self {
         Self {
-            // runtime,
+            tokio: tokio,
             servers: Default::default(),
             pending_opens: Default::default(),
         }
@@ -280,7 +304,7 @@ impl Vfs for ReplVfs {
                 let server_handle = match self.servers.lock().entry(vid.clone()) {
                     Entry::Occupied(entry) => entry.get().clone(),
                     Entry::Vacant(entry) => {
-                        let handle = RemoteDbServer::new();
+                        let handle = RemoteDbServer::new(self.tokio.handle());
                         entry.insert(handle.clone());
                         handle
                     }
