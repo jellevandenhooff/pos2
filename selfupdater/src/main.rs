@@ -848,6 +848,8 @@ async fn main() -> Result<()> {
         // TODO: only add current container to tracked resources on initial state creation?????
         // TODO: on initial state creation, if we pull the latest image and its version matches ours, don't update
         // but instead record that version?
+        // TODO: think about container configuration that we do or do not want to copy. detect defaults vs
+        // customization? complain if there are things we do not want to handle?
         updater
             .storage
             .add_tracked_resources("container", &self_container.container_id)?;

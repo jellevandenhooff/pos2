@@ -1,0 +1,25 @@
+[package]
+name = "sqlite-plugin"
+edition = "2024"
+authors = []
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+description = "A Rust crate for building a custom SQLite virtual file system (VFS)."
+keywords = ["sqlite", "vfs", "extension"]
+
+[lints.clippy]
+disallowed_methods = "deny"
+uninlined-format-args = "warn"
+doc-markdown = "warn"
+map-unwrap-or = "warn"
+
+[dev-dependencies]
+rusqlite = { version = "=0.37.0", features = ["blob", "trace", "bundled"] }
+parking_lot = "=0.12.5"
+
+[build-dependencies]
+bindgen = { version = "0.72", default-features = false }
+
+[features]
+default = []

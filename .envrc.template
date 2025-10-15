@@ -4,3 +4,4 @@ fi
 use nix
 unset DEVELOPER_DIR
 
+export DYLD_LIBRARY_PATH=/Library/Developer/CommandLineTools/usr/lib/
