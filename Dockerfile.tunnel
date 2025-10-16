@@ -8,10 +8,11 @@ RUN mkdir -p /out
 RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/app/target \
-   cargo build --release -p tunnel && cp /app/target/release/tunnel /out/tunnel
+  cargo build --release -p tunnel && \
+  cp /app/target/release/tunnel /out/app
 
 FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates
-COPY --from=build /out/tunnel /tunnel
-RUN ln -s /tunnel /selfupdater-helper
-CMD ["/tunnel"]
+COPY --from=build /out/app /app
+ENTRYPOINT ["/app"]
+CMD ["client", "/data"]

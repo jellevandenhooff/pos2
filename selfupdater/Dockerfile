@@ -1,33 +1,25 @@
-FROM rust:1.89 AS build
+FROM rust:1.90-trixie AS build
 
 WORKDIR /app
+COPY . /app
 
-# build dependencies
-RUN cargo new /app/selfupdater
-COPY ./Cargo.toml ./Cargo.lock /app/selfupdater/
-WORKDIR /app/selfupdater
-RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+RUN mkdir -p /out
 
-# copy source and build binary
-COPY . /app/selfupdater
-RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
-  set -e
-  # update timestamps to force a new build (copy pasted... unclear if needed)
-  touch ./src/main.rs
-  cargo build --release
-  # cargo strip (does not work... should it?)
-EOF
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/app/target \
+  cargo build --release -p selfupdater && \
+  cp /app/target/release/selfupdater /out/app
 
 # build  app
-FROM debian:bookworm-slim AS app
-
+FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates
-COPY --from=build /app/selfupdater/target/release/selfupdater /selfupdater
-RUN ln -s /selfupdater /selfupdater-helper
+COPY --from=build /out/app /app
 
 ARG TEST_HEALTHY
 ARG TEST_VERSION
 ENV TEST_VERSION=${TEST_VERSION}
 ENV TEST_HEALTHY=${TEST_HEALTHY}
 
-CMD ["/selfupdater"]
+ENTRYPOINT ["/app"]
+CMD []

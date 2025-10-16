@@ -281,7 +281,7 @@ impl SelfUpdater {
 
         let body = ContainerCreateBody {
             image: Some(state.next_version.clone()),
-            cmd: Some(vec!["/selfupdater-helper".into()]), // must exist...
+            cmd: Some(vec!["selfupdater-helper".into()]), // must exist...
             host_config: Some(HostConfig {
                 binds: current_container.host_config.unwrap().binds,
                 restart_policy: Some(RestartPolicy {
@@ -820,7 +820,7 @@ async fn main() -> Result<()> {
         delete_unused_images_pulled_before: chrono::Duration::seconds(30),
     };
 
-    if args.get(0).is_some_and(|cmd| cmd == "/selfupdater-helper") {
+    if args.get(1).is_some_and(|cmd| cmd == "selfupdater-helper") {
         let updater = SelfUpdater::new(updater_config).await?;
 
         // TODO: sanity check here also?
