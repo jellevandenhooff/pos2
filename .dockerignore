@@ -1,1 +1,2 @@
-tunnel/target
+**/target
+**/.git
