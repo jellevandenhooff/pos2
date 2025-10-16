@@ -32,7 +32,7 @@ pub trait VfsFile: Debug {
         extend: bool,
     ) -> Result<*mut c_void, ErrCtx>;
 
-    fn shm_lock(
+    async fn shm_lock(
         &mut self,
         lock_idx: flags::ShmLockIndex,
         n: usize,

@@ -75,7 +75,7 @@ impl VfsFile for MemFile {
         todo!("missing")
     }
 
-    fn shm_lock(
+    async fn shm_lock(
         &mut self,
         _lock_idx: flags::ShmLockIndex,
         _n: usize,

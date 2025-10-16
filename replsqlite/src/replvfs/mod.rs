@@ -76,6 +76,20 @@ impl ErrCtx {
         }
     }
 
+    #[inline]
+    async fn wrap_async<T>(cb: impl AsyncFnOnce() -> culprit::Result<T, ErrCtx>) -> VfsResult<T> {
+        match cb().await {
+            Ok(t) => Ok(t),
+            Err(err) => {
+                let code = err.ctx().sqlite_err();
+                if code == SQLITE_INTERNAL {
+                    tracing::error!("{}", err);
+                }
+                Err(code)
+            }
+        }
+    }
+
     fn sqlite_err(&self) -> SqliteErr {
         match self {
             ErrCtx::UnknownPragma => SQLITE_NOTFOUND,
@@ -170,6 +184,27 @@ impl ReplVfs {
             tokio: tokio,
             servers: Default::default(),
             pending_opens: Default::default(),
+        }
+    }
+
+    #[inline]
+    fn wrap_errctx_tokio<F, T>(&self, future: F) -> VfsResult<T>
+    where
+        F: Future<Output = culprit::Result<T, ErrCtx>>,
+    {
+        /*
+        pub fn block_on<F: Future>(&self, future: F) -> F::Output {
+        */
+
+        match self.tokio.block_on(future) {
+            Ok(t) => Ok(t),
+            Err(err) => {
+                let code = err.ctx().sqlite_err();
+                if code == SQLITE_INTERNAL {
+                    tracing::error!("{}", err);
+                }
+                Err(code)
+            }
         }
     }
 }
@@ -279,7 +314,7 @@ impl Vfs for ReplVfs {
 
     fn open(&self, path: Option<&str>, opts: OpenOpts) -> VfsResult<Self::Handle> {
         tracing::trace!("open: path={path:?}, opts={opts:?}");
-        ErrCtx::wrap(move || {
+        self.wrap_errctx_tokio(async move {
             // TODO:
             // - have (one?) shared struct for each database that holds state
             // - have walfile and dbfile both point to that shared struct
@@ -309,7 +344,7 @@ impl Vfs for ReplVfs {
                         handle
                     }
                 };
-                let handle = DbClientHandle::new(vid, server_handle)?;
+                let handle = DbClientHandle::new(vid, server_handle).await?;
                 return Ok(DbFile::new(handle, opts).into());
             }
 
@@ -472,7 +507,10 @@ impl Vfs for ReplVfs {
         tracing::trace!(
             "shm lock: handle={handle:?}, lock_idx={lock_idx:?}, n={n} lock_type={lock_type:?} lock_op={lock_op:?}",
         );
-        let result = ErrCtx::wrap(move || handle.shm_lock(lock_idx, n, lock_type, lock_op));
+
+        let result = self.wrap_errctx_tokio(async move {
+            handle.shm_lock(lock_idx, n, lock_type, lock_op).await
+        });
         tracing::trace!("shm lock: result={result:?}",);
         result
     }

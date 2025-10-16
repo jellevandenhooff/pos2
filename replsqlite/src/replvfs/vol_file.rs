@@ -110,9 +110,9 @@ pub struct DbClientHandle {
 }
 
 pub trait DbServer: Clone + Send + Sync {
-    fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx>;
-    fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx>; // +1, etc
-    fn commit_change(&self, version: u64, tx: &Transaction) -> Result<u64, ErrCtx>;
+    async fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx>;
+    async fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx>; // +1, etc
+    async fn commit_change(&self, version: u64, tx: &Transaction) -> Result<u64, ErrCtx>;
 
     // LATER: advisory lock for begin tx???
 }
@@ -146,8 +146,10 @@ impl RemoteDbServer {
             server: "http://localhost:3000".into(),
         })
     }
+}
 
-    async fn async_get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx> {
+impl DbServer for Arc<RemoteDbServer> {
+    async fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx> {
         let (db, version): (Vec<u8>, u64) = self
             .client
             .post(format!("{}/get_latest_snapshot", self.server))
@@ -161,10 +163,7 @@ impl RemoteDbServer {
         Ok((db, version))
     }
 
-    async fn async_get_changes_after(
-        &self,
-        version: u64,
-    ) -> Result<Vec<(Transaction, u64)>, ErrCtx> {
+    async fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx> {
         let changes: Vec<(Transaction, u64)> = self
             .client
             .post(format!("{}/get_changes_after", self.server))
@@ -179,7 +178,7 @@ impl RemoteDbServer {
         Ok(changes)
     }
 
-    async fn async_commit_change(&self, version: u64, change: &Transaction) -> Result<u64, ErrCtx> {
+    async fn commit_change(&self, version: u64, change: &Transaction) -> Result<u64, ErrCtx> {
         let new_version: u64 = self
             .client
             .post(format!("{}/commit_change", self.server))
@@ -195,57 +194,43 @@ impl RemoteDbServer {
     }
 }
 
-impl DbServer for Arc<RemoteDbServer> {
-    fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx> {
-        self.rt.block_on(self.async_get_latest_snapshot())
-    }
-
-    fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx> {
-        self.rt.block_on(self.async_get_changes_after(version))
-    }
-
-    fn commit_change(&self, version: u64, tx: &Transaction) -> Result<u64, ErrCtx> {
-        self.rt.block_on(self.async_commit_change(version, tx))
-    }
-}
-
-async fn get_latest_snapshot<T: DbServer>(server: Extension<T>) -> Json<(Vec<u8>, u64)> {
-    let (db, version) = server.get_latest_snapshot().expect("comeon");
+async fn get_latest_snapshot(server: Extension<TestDbServer>) -> Json<(Vec<u8>, u64)> {
+    let (db, version) = server.get_latest_snapshot().await.expect("comeon");
     info!("returning snapshot {}", version);
     Json((db, version))
 }
 
-async fn get_changes_after<T: DbServer>(
-    server: Extension<T>,
+async fn get_changes_after(
+    server: Extension<TestDbServer>,
     Json(version): Json<u64>,
 ) -> Json<Vec<(Transaction, u64)>> {
-    let changes = server.get_changes_after(version).expect("comeon");
+    let changes = server.get_changes_after(version).await.expect("comeon");
     for (_, change) in &changes {
         info!("returning change {}", change);
     }
     Json(changes)
 }
 
-async fn commit_change<T: DbServer>(
-    server: Extension<T>,
+async fn commit_change(
+    server: Extension<TestDbServer>,
     Json((version, transaction)): Json<(u64, Transaction)>,
 ) -> Json<u64> {
-    let new_version = server.commit_change(version, &transaction).expect("comeon");
+    let new_version = server
+        .commit_change(version, &transaction)
+        .await
+        .expect("comeon");
     info!("committed change {}", new_version);
     Json(new_version)
 }
 
-pub async fn run_web_server<T: DbServer + 'static>(server: T) {
+pub async fn run_web_server(server: TestDbServer) {
     let router = axum::Router::new()
         .route(
             "/get_latest_snapshot",
-            axum::routing::post(get_latest_snapshot::<T>),
+            axum::routing::post(get_latest_snapshot),
         )
-        .route(
-            "/get_changes_after",
-            axum::routing::post(get_changes_after::<T>),
-        )
-        .route("/commit_change", axum::routing::post(commit_change::<T>))
+        .route("/get_changes_after", axum::routing::post(get_changes_after))
+        .route("/commit_change", axum::routing::post(commit_change))
         .layer(Extension(server));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
@@ -270,12 +255,12 @@ impl TestDbServer {
 }
 
 impl DbServer for TestDbServer {
-    fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx> {
+    async fn get_latest_snapshot(&self) -> Result<(Vec<u8>, u64), ErrCtx> {
         let guard = self.handle.lock();
         Ok((guard.latest_snapshot.clone(), guard.latest_snapshot_version))
     }
 
-    fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx> {
+    async fn get_changes_after(&self, version: u64) -> Result<Vec<(Transaction, u64)>, ErrCtx> {
         let guard = self.handle.lock();
         let mut changes = vec![];
         for (tx, tx_version) in &guard.changes {
@@ -286,7 +271,7 @@ impl DbServer for TestDbServer {
         Ok(changes)
     }
 
-    fn commit_change(&self, version: u64, tx: &Transaction) -> Result<u64, ErrCtx> {
+    async fn commit_change(&self, version: u64, tx: &Transaction) -> Result<u64, ErrCtx> {
         let mut guard = self.handle.lock();
         if guard.latest_snapshot_version != version {
             return ErrCtx::Bad.into();
@@ -381,9 +366,9 @@ impl DbClient {
         apply_tx(&mut self.db_data, tx)
     }
 
-    fn pull_changes(&mut self) -> Result<(), ErrCtx> {
+    async fn pull_changes(&mut self) -> Result<(), ErrCtx> {
         info!("pulling changes");
-        let changes = self.server.get_changes_after(self.server_version)?;
+        let changes = self.server.get_changes_after(self.server_version).await?;
         for (tx, version) in &changes {
             info!("applying tx version {}", version);
             self.apply_tx(tx)?;
@@ -398,17 +383,17 @@ impl DbClient {
         Ok(())
     }
 
-    fn maybe_begin_tx(&mut self) -> Result<(), ErrCtx> {
+    async fn maybe_begin_tx(&mut self) -> Result<(), ErrCtx> {
         if self.write_locks + self.read_locks != 0 {
             return Ok(());
         }
 
-        self.pull_changes()?;
+        self.pull_changes().await?;
 
         Ok(())
     }
 
-    fn maybe_end_tx(&mut self) -> Result<(), ErrCtx> {
+    async fn maybe_end_tx(&mut self) -> Result<(), ErrCtx> {
         if self.write_locks + self.read_locks != 0 {
             return Ok(());
         }
@@ -447,7 +432,7 @@ impl DbClient {
 
                     // TODO: this is broken if we sent multiple transactions in a row. but that should not be allowed?
                     // TODO: can we do this commit not at the unlock path but at the write to the wal stage instead?
-                    let new_version = self.server.commit_change(self.server_version, &tx)?;
+                    let new_version = self.server.commit_change(self.server_version, &tx).await?;
                     tracing::info!("sent tx version {}", new_version);
 
                     // self.pull_changes()?;
@@ -602,8 +587,8 @@ fn make_initial_db() -> Vec<u8> {
 }
 
 impl DbClient {
-    pub fn new(server: Arc<RemoteDbServer>) -> Result<Self, ErrCtx> {
-        let (db_data, db_version) = server.get_latest_snapshot()?;
+    pub async fn new(server: Arc<RemoteDbServer>) -> Result<Self, ErrCtx> {
+        let (db_data, db_version) = server.get_latest_snapshot().await?;
 
         let initial_wal_data = vec![0; structs::WAL_HEADER_SIZE];
 
@@ -629,10 +614,10 @@ impl DbClient {
 }
 
 impl DbClientHandle {
-    pub fn new(id: String, server: Arc<RemoteDbServer>) -> Result<Self, ErrCtx> {
+    pub async fn new(id: String, server: Arc<RemoteDbServer>) -> Result<Self, ErrCtx> {
         Ok(Self {
             id: id,
-            data: Arc::new(Mutex::new(DbClient::new(server)?)),
+            data: Arc::new(Mutex::new(DbClient::new(server).await?)),
         })
     }
 }
@@ -757,7 +742,7 @@ impl VfsFile for DbFile {
         Ok(guard.wal_index.void_pointer_for_sqlite())
     }
 
-    fn shm_lock(
+    async fn shm_lock(
         &mut self,
         lock_idx: flags::ShmLockIndex,
         _n: usize,
@@ -773,7 +758,7 @@ impl VfsFile for DbFile {
                         ErrCtx::Busy.into()
                     } else {
                         // TODO: should this be possible?
-                        guard.maybe_begin_tx()?;
+                        guard.maybe_begin_tx().await?;
 
                         // TODO: check that it is 0?
                         guard.write_locks += 1;
@@ -787,7 +772,7 @@ impl VfsFile for DbFile {
                     } else {
                         // TODO: check that it is 1?
                         guard.write_locks -= 1;
-                        guard.maybe_end_tx()?;
+                        guard.maybe_end_tx().await?;
                         Ok(())
                     }
                 }
@@ -802,7 +787,7 @@ impl VfsFile for DbFile {
                             info!("started read");
                         }
                         // TODO: should this be possible?
-                        guard.maybe_begin_tx()?;
+                        guard.maybe_begin_tx().await?;
                         guard.read_locks += 1;
                         Ok(())
                     }
@@ -811,7 +796,7 @@ impl VfsFile for DbFile {
                         ErrCtx::Bad.into()
                     } else {
                         guard.read_locks -= 1;
-                        guard.maybe_end_tx()?;
+                        guard.maybe_end_tx().await?;
                         Ok(())
                     }
                 }
@@ -922,7 +907,7 @@ impl VfsFile for WalFile {
         ErrCtx::Bad.into()
     }
 
-    fn shm_lock(
+    async fn shm_lock(
         &mut self,
         _lock_idx: flags::ShmLockIndex,
         _n: usize,
