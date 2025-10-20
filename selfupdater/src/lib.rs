@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-mod docker;
+pub mod docker;
 mod storage;
 
 // TODO:
@@ -39,6 +39,21 @@ pub struct UpdaterConfiguration {
     pub delete_dangling_created_containers_after: chrono::Duration,
     pub delete_unused_containers_after: chrono::Duration,
     pub delete_unused_images_pulled_before: chrono::Duration, // XXX: yuck
+}
+
+pub async fn run(config: UpdaterConfiguration, cancellation: CancellationToken) -> Result<()> {
+    let args: Vec<_> = std::env::args().collect();
+
+    if args.get(1).is_some_and(|cmd| cmd == "selfupdater-helper") {
+        let updater = SelfUpdater::new(config).await?;
+        updater.run_helper(cancellation.clone()).await?;
+        return Ok(());
+    }
+
+    let updater = SelfUpdater::new(config).await?;
+    updater.start_main(cancellation.clone()).await?;
+
+    Ok(())
 }
 
 fn diff_states(a: &State, b: &State) -> Result<String> {
