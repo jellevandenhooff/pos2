@@ -1,0 +1,9 @@
+[package]
+name = "wasi3app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wasip3 = "0.2.0"
+wit-bindgen = "0.46.0"
+wit-bindgen-core = "0.46.0"
