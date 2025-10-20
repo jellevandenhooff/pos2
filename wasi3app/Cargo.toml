@@ -7,3 +7,6 @@ edition = "2024"
 wasip3 = "0.2.0"
 wit-bindgen = "0.46.0"
 wit-bindgen-core = "0.46.0"
+
+[lib]
+crate-type = ["cdylib"]

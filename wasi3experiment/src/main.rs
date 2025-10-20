@@ -1,9 +1,12 @@
+use std::convert::Infallible;
 use std::sync::Arc;
 
 use http::{HeaderMap, Method};
-use wasmtime::component::{Accessor, Linker, ResourceTable};
+use http_body_util::BodyExt;
+use wasmtime::component::{Accessor, AsAccessor, Linker, ResourceTable};
 use wasmtime::{AsContext, Config, Engine, Result, Store, StoreContextMut};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+use wasmtime_wasi_http::p3::bindings::http::types::ErrorCode;
 use wasmtime_wasi_http::p3::{DefaultWasiHttpCtx, Request, WasiHttpCtxView, WasiHttpView};
 
 #[tokio::main]
@@ -16,6 +19,8 @@ async fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     let mut linker = Linker::<MyState>::new(&engine);
+    // unfortunate... adding this because of compile target. maybe not so bad?
+    wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
     // ... add any further functionality to `linker` if desired ...
@@ -24,38 +29,38 @@ async fn main() -> Result<()> {
 
     let component = wasmtime::component::Component::from_file(
         &engine,
-        "../../target/wasm32-wasip2/debug/libwasi3app.rlib",
+        "../target/wasm32-wasip2/debug/wasi3app.wasm",
     )?;
 
     // let instance = linker.instantiate_async(&mut store, &c).await?;
 
     let proxy =
-        wasmtime_wasi_http::p3::bindings::Proxy::instantiate(&mut store, &component, &linker)?;
+        wasmtime_wasi_http::p3::bindings::Proxy::instantiate_async(&mut store, &component, &linker)
+            .await?;
+    let resp = store
+        .run_concurrent(async |store| -> Result<_> {
+            // store.run_concurrent();
 
-    // store.run_concurrent();
+            // proxy.wasi_http_handler()
+            //
+            let body: String = "hello world".into();
+            let req = http::Request::new(body);
 
-    proxy.wasi_http_handler()
+            let (request, request_io_result) = Request::from_http(req);
+            let (res, task) = proxy.handle(store, request).await??;
+            let res = store.with(|mut store| res.into_http(&mut store, request_io_result))?;
+            task.block(store).await;
 
-    let (request, request_io_result) =
-       Request::new(
-            Method::GET,
-            None,
-            None,
-            None,
-            Arc::new(HeaderMap::new()),
-            None,
-            "".into(),
-        );
+            // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+            Ok(res)
 
- 
-    let (res, task) = proxy.handle(&store, request).await??;
-    // let res = store.with(|mut store| res.into_http(&mut store, request_io_result))?;
-    _ = tx.send(res.map(|body| body.map_err(|e| e.into()).boxed()));
+            // proxy.handle(&store, request);
 
-    proxy.handle(
-        &store,
- ,
-    );
+            // Ok(())
+        })
+        .await??;
+
+    println!("{:?}", resp);
 
     // instance.spawn(store, task)?;
     // linker.instantiate(store, component)
