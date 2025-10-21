@@ -14,6 +14,8 @@ use wasmtime_wasi_http::p3::{DefaultWasiHttpCtx, Request, WasiHttpCtxView, WasiH
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
     println!("Hello, world!");
 
     let mut config = Config::new();
@@ -28,6 +30,17 @@ async fn main() -> Result<()> {
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
     // ... add any further functionality to `linker` if desired ...
 
+    // questions:
+    // - initialize component how/where?
+    // - streaming response(s)?
+    // - timeouts? aborting? max concurrency?
+    //
+    // what would be nice to make...
+    // - tiny axum http router server (https://github.com/fermyon/spin-wasip3-http)
+    // - format html with maud?
+    // - sqlite storage
+    // - init function
+
     let component = wasmtime::component::Component::from_file(
         &engine,
         "../target/wasm32-wasip2/debug/wasi3app.wasm",
@@ -41,6 +54,8 @@ async fn main() -> Result<()> {
     // there's lots of interesting timeout and queueing stuff in
     // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
     // it'd be nice to (not) replicate that?
+
+    // how to abstract away this api? async req -> resp, ideally?
 
     store
         .run_concurrent(async move |store| -> Result<_> {
@@ -64,17 +79,17 @@ async fn main() -> Result<()> {
                 tokio::spawn(async move {
                     let resp = rx.await.unwrap();
 
-                    println!("{:?}", resp);
+                    tracing::info!("{:?}", resp);
                     let (parts, body) = resp.into_parts();
 
-                    println!("{parts:?}");
+                    tracing::info!("{parts:?}");
                     let mut body = body.into_data_stream();
 
                     loop {
                         let frame = body.next().await;
                         match frame {
                             Some(frame) => {
-                                println!("frame {:?}", frame);
+                                tracing::info!("frame {:?}", frame);
                             }
                             None => break,
                         }
