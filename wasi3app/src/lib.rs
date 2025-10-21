@@ -1,3 +1,4 @@
+use wasip3::clocks::monotonic_clock::wait_for;
 use wasip3::http::types::{ErrorCode, Fields, Request, Response};
 use wasip3::{wit_bindgen, wit_future, wit_stream};
 
@@ -15,6 +16,10 @@ impl wasip3::exports::http::handler::Guest for Example {
 
         wit_bindgen::spawn(async move {
             let remaining = body_tx.write_all(b"Hello, WASI!".to_vec()).await;
+            assert!(remaining.is_empty());
+            wait_for(1_000_000_000).await; // 1s
+
+            let remaining = body_tx.write_all(b"Hello, again, WASI!".to_vec()).await;
             assert!(remaining.is_empty());
         });
         Ok(response)

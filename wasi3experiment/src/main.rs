@@ -1,3 +1,6 @@
+use futures::stream::StreamExt;
+use futures_core::stream::Stream;
+use http_body_util::combinators::BoxBody;
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -25,47 +28,67 @@ async fn main() -> Result<()> {
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
     // ... add any further functionality to `linker` if desired ...
 
-    let mut store = Store::new(&engine, MyState::default());
-
     let component = wasmtime::component::Component::from_file(
         &engine,
         "../target/wasm32-wasip2/debug/wasi3app.wasm",
     )?;
 
-    // let instance = linker.instantiate_async(&mut store, &c).await?;
-
+    let mut store = Store::new(&engine, MyState::default());
     let proxy =
         wasmtime_wasi_http::p3::bindings::Proxy::instantiate_async(&mut store, &component, &linker)
             .await?;
-    let resp = store
-        .run_concurrent(async |store| -> Result<_> {
-            // store.run_concurrent();
 
-            // proxy.wasi_http_handler()
-            //
-            let body: String = "hello world".into();
-            let req = http::Request::new(body);
+    // there's lots of interesting timeout and queueing stuff in
+    // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
+    // it'd be nice to (not) replicate that?
 
-            let (request, request_io_result) = Request::from_http(req);
-            let (res, task) = proxy.handle(store, request).await??;
-            let res = store.with(|mut store| res.into_http(&mut store, request_io_result))?;
-            task.block(store).await;
+    store
+        .run_concurrent(async move |store| -> Result<_> {
+            let mut futs = vec![];
 
-            // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-            Ok(res)
+            for _i in 0..5 {
+                use tokio::sync::oneshot;
+                let (tx, rx) =
+                    oneshot::channel::<http::Response<BoxBody<bytes::Bytes, ErrorCode>>>();
 
-            // proxy.handle(&store, request);
+                let body: String = "hello world".into();
+                let req = http::Request::new(body);
 
-            // Ok(())
+                let (request, request_io_result) = Request::from_http(req);
+                let (res, task) = proxy.handle(store, request).await??;
+                let res = store.with(|mut store| res.into_http(&mut store, request_io_result))?;
+
+                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+                tx.send(res).unwrap();
+
+                tokio::spawn(async move {
+                    let resp = rx.await.unwrap();
+
+                    println!("{:?}", resp);
+                    let (parts, body) = resp.into_parts();
+
+                    println!("{parts:?}");
+                    let mut body = body.into_data_stream();
+
+                    loop {
+                        let frame = body.next().await;
+                        match frame {
+                            Some(frame) => {
+                                println!("frame {:?}", frame);
+                            }
+                            None => break,
+                        }
+                    }
+                });
+
+                futs.push(task.block(store));
+            }
+
+            futures::future::join_all(futs).await;
+
+            Ok(())
         })
         .await??;
-
-    println!("{:?}", resp);
-
-    // instance.spawn(store, task)?;
-    // linker.instantiate(store, component)
-
-    // ... use `linker` to instantiate within `store` ...
 
     Ok(())
 }
