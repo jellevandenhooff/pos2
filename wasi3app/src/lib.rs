@@ -21,6 +21,7 @@ wit_bindgen::generate!({
     world: "jelle:test/app",
     path: "../wit-new",
     with: {
+        // TODO: wish there was some wildcard support?
         "wasi:random/random@0.3.0-rc-2025-09-16": wasip3::random::random,
         "wasi:cli/types@0.3.0-rc-2025-09-16": wasip3::cli::types,
         "wasi:cli/stdout@0.3.0-rc-2025-09-16": wasip3::cli::stdout,
@@ -99,7 +100,17 @@ impl Guest for Example {
                 wait_for(100_000_000).await; // 100ms
             }
         });
+
+        let rows = jelle::test::sqlite::query("SELECT * FROM test".into(), vec![])
+            .await
+            .expect("huh");
+
+        for row in rows {
+            println!("{:?}", row);
+        }
+
         wait_for(500_000_000).await; // 500ms
+
         println!("initialize about to return");
         Ok(())
     }

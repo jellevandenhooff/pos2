@@ -23,6 +23,7 @@ mod generated {
             "wasi": wasmtime_wasi::p3::bindings,
             "wasi:http": wasmtime_wasi_http::p3::bindings::http,
         },
+        // TODO: do not know what these mean...?
         imports: {
             default: trappable | tracing,
         },
@@ -69,6 +70,52 @@ mod generated {
     }
 }
 
+#[derive(Default)]
+struct SqliteCtx {}
+
+impl wasmtime::component::HasData for Sqlite {
+    type Data<'a> = &'a mut SqliteCtx;
+}
+
+struct Sqlite;
+
+use generated::jelle::test::sqlite;
+
+impl sqlite::Host for SqliteCtx {}
+
+trait SqliteView: Send {
+    fn sqlite(&mut self) -> &mut SqliteCtx;
+}
+
+impl SqliteView for MyState {
+    fn sqlite(&mut self) -> &mut SqliteCtx {
+        &mut self.sqlite
+    }
+}
+
+pub fn sqlite_add_to_linker<T>(linker: &mut Linker<T>) -> wasmtime::Result<()>
+where
+    T: SqliteView + 'static,
+{
+    sqlite::add_to_linker::<_, Sqlite>(linker, T::sqlite)?;
+    Ok(())
+}
+
+impl sqlite::HostWithStore for Sqlite {
+    async fn query<T>(
+        accessor: &wasmtime::component::Accessor<T, Self>,
+        query: String,
+        args: Vec<sqlite::Value>,
+    ) -> wasmtime::Result<Result<Vec<sqlite::Row>, sqlite::ErrorCode>> {
+        let mut rows = vec![];
+        let mut row = vec![];
+        row.push(sqlite::Value::StringValue("yo".into()));
+        rows.push(row);
+
+        Ok(Ok(rows))
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -87,6 +134,8 @@ async fn main() -> Result<()> {
     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
     wasmtime_wasi_http::p3::add_to_linker(&mut linker)?;
+
+    sqlite_add_to_linker(&mut linker)?;
 
     // questions:
     // - initialize component how/where?
@@ -116,6 +165,7 @@ async fn main() -> Result<()> {
         &engine,
         MyState {
             ctx: ctx,
+            sqlite: Default::default(),
             http: Default::default(),
             table: Default::default(),
         },
@@ -198,6 +248,7 @@ async fn main() -> Result<()> {
 #[derive(Default)]
 struct MyState {
     ctx: WasiCtx,
+    sqlite: SqliteCtx,
     http: DefaultWasiHttpCtx,
     table: ResourceTable,
 }

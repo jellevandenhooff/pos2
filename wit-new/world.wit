@@ -1,18 +1,28 @@
 package jelle:test;
 
+interface sqlite {
+  enum error-code {
+    bad,
+  }
+
+  variant value {
+    string-value(string),
+    bool-value(bool),
+    s64-value(s64),
+    f64-value(f64),
+  }
+
+  type row = list<value>;
+
+  query: async func(query: string, args: list<value>) -> result<list<row>, error-code>;
+}
+
 world app {
-  // copy the proxy, somehow?
   include wasi:http/proxy@0.3.0-rc-2025-09-16;
 
-  export wasi:http/handler@0.3.0-rc-2025-09-16;
+  import sqlite;
 
+  export wasi:http/handler@0.3.0-rc-2025-09-16;
   export initialize: async func() -> result;
 }
 
-// IDK:
-  
-// We actually don't use this; it's just to let bindgen! find the corresponding world in wit/deps.
-// package wasmtime:wasi-http;
-// world bindings {
-  // include wasi:http/proxy@0.3.0-rc-2025-09-16;
-// }
