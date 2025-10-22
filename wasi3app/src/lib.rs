@@ -76,15 +76,34 @@ async fn root() -> impl axum::response::IntoResponse {
         *guard
     };
 
-    // TODO: sqlite?
-
     async_handler(value)
+}
+
+async fn templated() -> impl axum::response::IntoResponse {
+    let value = {
+        let mut guard = STATE.lock().await;
+        *guard += 1;
+        *guard
+    };
+
+    maud::html!(
+        head {
+            title { "hello" }
+        }
+        body {
+            "current value: " (value)
+        }
+    )
 }
 
 async fn handler(
     request: wasip3_http_wrapper::IncomingRequest,
 ) -> impl wasip3_http_wrapper::IntoResponse {
-    Router::new().route("/", get(root)).call(request).await
+    Router::new()
+        .route("/", get(root))
+        .route("/templated", get(templated))
+        .call(request)
+        .await
 }
 
 // impl exports::jelle::test::app::Guest for Example {}

@@ -383,10 +383,10 @@ async fn main() -> Result<()> {
 
     // questions:
     // - timeouts? aborting? max concurrency?
-    // - if I want to reuse some generated wit bindings, can I? ah, yes, there's a "with" option in bindgen
     //
     // what would be nice to make...
-    // - format html with maud?
+    // - expose request/response over http?
+    // - hide clunky stuff behind something
 
     tracing::info!("loading component");
 
@@ -437,13 +437,16 @@ async fn main() -> Result<()> {
                 bail!("failed to start worker");
             }
 
-            for _i in 0..5 {
+            for i in 0..5 {
                 use tokio::sync::oneshot;
                 let (tx, rx) =
                     oneshot::channel::<http::Response<BoxBody<bytes::Bytes, ErrorCode>>>();
 
                 let body: String = "hello world".into();
-                let req = http::Request::new(body);
+                let mut req = http::Request::new(body);
+                if i == 0 {
+                    *req.uri_mut() = "/templated".parse().unwrap();
+                }
 
                 let (request, request_io_result) = Request::from_http(req);
 
