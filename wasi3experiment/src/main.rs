@@ -10,13 +10,18 @@ use wasmtime::component::types::Case;
 
 use http::{HeaderMap, Method};
 use http_body_util::BodyExt;
-use wasmtime::component::{Accessor, AsAccessor, Linker, ResourceTable};
+use wasmtime::component::{Accessor, AsAccessor, Linker, Resource, ResourceTable};
 use wasmtime::{AsContext, Config, Engine, Result, Store, StoreContextMut};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wasi_http::p3::bindings::http::types::ErrorCode;
 use wasmtime_wasi_http::p3::{DefaultWasiHttpCtx, Request, WasiHttpCtxView, WasiHttpView};
 
 use anyhow::bail;
+
+pub struct Transaction {
+    // transaction: rusqlite::Transaction<'static>,
+    running: bool,
+}
 
 mod generated {
     wasmtime::component::bindgen!({
@@ -25,11 +30,15 @@ mod generated {
         with: {
             "wasi": wasmtime_wasi::p3::bindings,
             "wasi:http": wasmtime_wasi_http::p3::bindings::http,
+            "jelle:test/sqlite/transaction": super::Transaction,
         },
-        // TODO: do not know what these mean...?
+
         imports: {
+            "jelle:test/sqlite/[drop]transaction": async | store | trappable | tracing,
             default: trappable | tracing,
         },
+
+        // TODO: do not know what these mean...?
         exports: { default: async | store | task_exit },
     });
 
@@ -74,26 +83,36 @@ mod generated {
 }
 
 struct SqliteCtx {
-    conn: Arc<Mutex<rusqlite::Connection>>,
+    conn: rusqlite::Connection,
+    in_tx: bool,
 }
 
 impl wasmtime::component::HasData for Sqlite {
-    type Data<'a> = &'a mut SqliteCtx;
+    type Data<'a> = SqliteCtxView<'a>;
 }
 
 struct Sqlite;
 
 use generated::jelle::test::sqlite;
 
-impl sqlite::Host for SqliteCtx {}
+impl sqlite::Host for SqliteCtxView<'_> {}
+impl sqlite::HostTransaction for SqliteCtxView<'_> {}
 
 trait SqliteView: Send {
-    fn sqlite(&mut self) -> &mut SqliteCtx;
+    fn sqlite(&mut self) -> SqliteCtxView<'_>;
+}
+
+struct SqliteCtxView<'a> {
+    pub ctx: &'a mut SqliteCtx,
+    pub table: &'a mut ResourceTable,
 }
 
 impl SqliteView for MyState {
-    fn sqlite(&mut self) -> &mut SqliteCtx {
-        &mut self.sqlite
+    fn sqlite(&mut self) -> SqliteCtxView<'_> {
+        SqliteCtxView {
+            ctx: &mut self.sqlite,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -143,15 +162,22 @@ impl rusqlite::types::FromSql for sqlite::Value {
     }
 }
 
-impl sqlite::HostWithStore for Sqlite {
+impl sqlite::HostTransactionWithStore for Sqlite {
     async fn query<T>(
-        accessor: &wasmtime::component::Accessor<T, Self>,
+        accessor: &Accessor<T, Self>,
+        self_: Resource<sqlite::Transaction>,
         query: String,
         args: Vec<sqlite::Value>,
-    ) -> wasmtime::Result<Result<Vec<sqlite::Row>, sqlite::ErrorCode>> {
-        Ok(accessor.with(|mut store| {
-            let guard = store.get().conn.lock();
-            let mut prepared = guard.prepare(&query)?;
+    ) -> wasmtime::Result<std::result::Result<Vec<sqlite::Row>, sqlite::ErrorCode>> {
+        // TODO: deduplicate
+        accessor.with(|mut store| {
+            let view = store.get();
+            let ctx = view.ctx;
+            let tx = view.table.get_mut(&self_)?;
+            if !tx.running {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            let mut prepared = ctx.conn.prepare(&query)?;
             let count = prepared.column_count(); // TODO: this count may be out of date???????
             let mut rows_iter = prepared.query(rusqlite::params_from_iter(args))?;
             let mut rows = vec![];
@@ -168,20 +194,154 @@ impl sqlite::HostWithStore for Sqlite {
                 rows.push(row);
             }
 
-            Ok(rows)
-        }))
+            Ok(Ok(rows))
+        })
     }
 
     async fn execute<T>(
-        accessor: &wasmtime::component::Accessor<T, Self>,
+        accessor: &Accessor<T, Self>,
+        self_: Resource<sqlite::Transaction>,
+        query: String,
+        args: Vec<sqlite::Value>,
+    ) -> wasmtime::Result<std::result::Result<u64, sqlite::ErrorCode>> {
+        accessor.with(|mut store| {
+            let view = store.get();
+            let ctx = view.ctx;
+            let tx = view.table.get_mut(&self_)?;
+            if !tx.running {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            let result = ctx.conn.execute(&query, rusqlite::params_from_iter(args))?;
+            Ok(Ok(result as u64))
+        })
+        // todo!("help");
+    }
+
+    async fn commit<T>(
+        accessor: &Accessor<T, Self>,
+        self_: Resource<sqlite::Transaction>,
+    ) -> wasmtime::Result<std::result::Result<(), sqlite::ErrorCode>> {
+        tracing::info!("commit");
+        accessor.with(|mut store| {
+            let view = store.get();
+            let ctx = view.ctx;
+            let tx = view.table.get_mut(&self_)?;
+            if !tx.running {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            tx.running = false;
+            ctx.in_tx = false;
+            ctx.conn.execute("COMMIT", [])?;
+            Ok(Ok(()))
+        })
+    }
+
+    async fn rollback<T>(
+        accessor: &Accessor<T, Self>,
+        self_: Resource<sqlite::Transaction>,
+    ) -> wasmtime::Result<std::result::Result<(), sqlite::ErrorCode>> {
+        tracing::info!("rollback");
+        accessor.with(|mut store| {
+            let view = store.get();
+            let ctx = view.ctx;
+            let tx = view.table.get_mut(&self_)?;
+            if !tx.running {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            tx.running = false;
+            ctx.in_tx = false;
+            ctx.conn.execute("ROLLBACK", [])?;
+            Ok(Ok(()))
+        })
+    }
+
+    async fn drop<T>(
+        accessor: &Accessor<T, Self>,
+        self_: wasmtime::component::Resource<sqlite::Transaction>,
+    ) -> wasmtime::Result<()> {
+        tracing::info!("dropping");
+        accessor.with(|mut store| {
+            let view = store.get();
+            let ctx = view.ctx;
+            let mut tx = view.table.delete(self_)?;
+            if tx.running {
+                tx.running = false;
+                ctx.in_tx = false;
+                ctx.conn.execute("ROLLBACK", [])?;
+            }
+            drop(tx);
+            Ok(())
+        })
+    }
+}
+
+impl sqlite::HostWithStore for Sqlite {
+    // TODO: the errors in the http package seem nicer? (it's only one layer of error, somehow?)
+
+    async fn begin<T>(
+        accessor: &Accessor<T, Self>,
+    ) -> wasmtime::Result<Result<Resource<sqlite::Transaction>, sqlite::ErrorCode>> {
+        tracing::info!("begin");
+
+        accessor.with(|mut store| {
+            let ctx = store.get().ctx;
+            if ctx.in_tx {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            ctx.conn.execute("BEGIN", [])?;
+            ctx.in_tx = true;
+            let resource = store
+                .get()
+                .table
+                .push(sqlite::Transaction { running: true })?;
+            Ok(Ok(Resource::new_own(resource.rep())))
+        })
+    }
+
+    async fn query<T>(
+        accessor: &Accessor<T, Self>,
+        query: String,
+        args: Vec<sqlite::Value>,
+    ) -> wasmtime::Result<Result<Vec<sqlite::Row>, sqlite::ErrorCode>> {
+        accessor.with(|mut store| {
+            let ctx = store.get().ctx;
+            if ctx.in_tx {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            let mut prepared = ctx.conn.prepare(&query)?;
+            let count = prepared.column_count(); // TODO: this count may be out of date???????
+            let mut rows_iter = prepared.query(rusqlite::params_from_iter(args))?;
+            let mut rows = vec![];
+
+            loop {
+                let row_accessor = match rows_iter.next()? {
+                    None => break,
+                    Some(row) => row,
+                };
+                let mut row = vec![];
+                for idx in 0..count {
+                    row.push(row_accessor.get(idx)?);
+                }
+                rows.push(row);
+            }
+
+            Ok(Ok(rows))
+        })
+    }
+
+    async fn execute<T>(
+        accessor: &Accessor<T, Self>,
         query: String,
         args: Vec<sqlite::Value>,
     ) -> wasmtime::Result<Result<u64, sqlite::ErrorCode>> {
-        Ok(accessor.with(|mut store| {
-            let guard = store.get().conn.lock();
-            let result = guard.execute(&query, rusqlite::params_from_iter(args))?;
-            Ok(result as u64)
-        }))
+        accessor.with(|mut store| {
+            let ctx = store.get().ctx;
+            if ctx.in_tx {
+                return Ok(Err(sqlite::ErrorCode::Bad));
+            }
+            let result = ctx.conn.execute(&query, rusqlite::params_from_iter(args))?;
+            Ok(Ok(result as u64))
+        })
     }
 }
 
@@ -244,7 +404,8 @@ async fn main() -> Result<()> {
         MyState {
             ctx: ctx,
             sqlite: SqliteCtx {
-                conn: Arc::new(Mutex::new(sqlite)),
+                conn: sqlite,
+                in_tx: false,
             },
             http: Default::default(),
             table: Default::default(),

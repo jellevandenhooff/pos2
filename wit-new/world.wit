@@ -13,8 +13,16 @@ interface sqlite {
     f64-value(f64),
   }
 
+  resource transaction {
+    query: async func(query: string, args: list<value>) -> result<list<row>, error-code>;
+    execute: async func(query: string, args: list<value>) -> result<u64, error-code>;
+    commit: async func() -> result<_, error-code>;
+    rollback: async func() -> result<_, error-code>;
+  }
+
   type row = list<value>;
 
+  begin: async func() -> result<transaction, error-code>;
   query: async func(query: string, args: list<value>) -> result<list<row>, error-code>;
   execute: async func(query: string, args: list<value>) -> result<u64, error-code>;
 }

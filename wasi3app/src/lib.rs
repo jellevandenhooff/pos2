@@ -113,6 +113,33 @@ impl bindings::Guest for Example {
         .expect("huh");
         println!("changed: {changed}");
 
+        {
+            let tx = sqlite::begin().await.expect("begin");
+
+            let _changed = tx
+                .execute(
+                    "INSERT INTO test( key, value) VALUES (?, ?)".into(),
+                    vec![
+                        sqlite::Value::StringValue("inside".into()),
+                        sqlite::Value::StringValue("tx".into()),
+                    ],
+                )
+                .await
+                .expect("huh");
+
+            let rows = tx
+                .query("SELECT * FROM test".into(), vec![])
+                .await
+                .expect("huh");
+
+            for row in rows {
+                println!("{:?}", row);
+            }
+
+            // tx.commit().await.expect("commit");
+            tx.rollback().await.expect("rollback");
+        }
+
         let rows = sqlite::query("SELECT * FROM test".into(), vec![])
             .await
             .expect("huh");
