@@ -5873,6 +5873,8 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
+ "parking_lot",
+ "rusqlite",
  "tokio",
  "tracing",
  "tracing-subscriber",

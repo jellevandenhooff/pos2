@@ -6,8 +6,9 @@ interface sqlite {
   }
 
   variant value {
+    null-value,
     string-value(string),
-    bool-value(bool),
+    blob-value(list<u8>),
     s64-value(s64),
     f64-value(f64),
   }
@@ -15,6 +16,7 @@ interface sqlite {
   type row = list<value>;
 
   query: async func(query: string, args: list<value>) -> result<list<row>, error-code>;
+  execute: async func(query: string, args: list<value>) -> result<u64, error-code>;
 }
 
 world app {

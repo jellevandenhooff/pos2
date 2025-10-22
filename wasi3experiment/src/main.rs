@@ -1,9 +1,12 @@
 use futures::stream::StreamExt;
 use futures_core::stream::Stream;
 use http_body_util::combinators::BoxBody;
+use parking_lot::Mutex;
 use std::convert::Infallible;
 use std::ops::Deref;
+use std::rc::Rc;
 use std::sync::Arc;
+use wasmtime::component::types::Case;
 
 use http::{HeaderMap, Method};
 use http_body_util::BodyExt;
@@ -70,8 +73,9 @@ mod generated {
     }
 }
 
-#[derive(Default)]
-struct SqliteCtx {}
+struct SqliteCtx {
+    conn: Arc<Mutex<rusqlite::Connection>>,
+}
 
 impl wasmtime::component::HasData for Sqlite {
     type Data<'a> = &'a mut SqliteCtx;
@@ -101,24 +105,104 @@ where
     Ok(())
 }
 
+impl From<rusqlite::Error> for sqlite::ErrorCode {
+    fn from(value: rusqlite::Error) -> Self {
+        sqlite::ErrorCode::Bad
+    }
+}
+
+use rusqlite::types::FromSqlResult;
+use rusqlite::types::ToSqlOutput;
+use rusqlite::types::ValueRef;
+
+impl rusqlite::ToSql for sqlite::Value {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        match &self {
+            &sqlite::Value::StringValue(v) => {
+                Ok(ToSqlOutput::Borrowed(ValueRef::Text(v.as_bytes())))
+            }
+            &sqlite::Value::S64Value(v) => Ok(ToSqlOutput::Borrowed(ValueRef::Integer(*v))),
+            &sqlite::Value::F64Value(v) => Ok(ToSqlOutput::Borrowed(ValueRef::Real(*v))),
+            &sqlite::Value::NullValue => Ok(ToSqlOutput::Borrowed(ValueRef::Null)),
+            &sqlite::Value::BlobValue(v) => Ok(ToSqlOutput::Borrowed(ValueRef::Blob(v))),
+        }
+    }
+}
+
+impl rusqlite::types::FromSql for sqlite::Value {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value {
+            ValueRef::Text(s) => Ok(sqlite::Value::StringValue(
+                str::from_utf8(s).expect("wtf").into(),
+            )),
+            ValueRef::Integer(v) => Ok(sqlite::Value::S64Value(v)),
+            ValueRef::Real(v) => Ok(sqlite::Value::F64Value(v)),
+            ValueRef::Blob(v) => Ok(sqlite::Value::BlobValue(v.into())),
+            ValueRef::Null => Ok(sqlite::Value::NullValue),
+        }
+    }
+}
+
 impl sqlite::HostWithStore for Sqlite {
     async fn query<T>(
         accessor: &wasmtime::component::Accessor<T, Self>,
         query: String,
         args: Vec<sqlite::Value>,
     ) -> wasmtime::Result<Result<Vec<sqlite::Row>, sqlite::ErrorCode>> {
-        let mut rows = vec![];
-        let mut row = vec![];
-        row.push(sqlite::Value::StringValue("yo".into()));
-        rows.push(row);
+        Ok(accessor.with(|mut store| {
+            let guard = store.get().conn.lock();
+            let mut prepared = guard.prepare(&query)?;
+            let count = prepared.column_count(); // TODO: this count may be out of date???????
+            let mut rows_iter = prepared.query(rusqlite::params_from_iter(args))?;
+            let mut rows = vec![];
 
-        Ok(Ok(rows))
+            loop {
+                let row_accessor = match rows_iter.next()? {
+                    None => break,
+                    Some(row) => row,
+                };
+                let mut row = vec![];
+                for idx in 0..count {
+                    row.push(row_accessor.get(idx)?);
+                }
+                rows.push(row);
+            }
+
+            Ok(rows)
+        }))
+    }
+
+    async fn execute<T>(
+        accessor: &wasmtime::component::Accessor<T, Self>,
+        query: String,
+        args: Vec<sqlite::Value>,
+    ) -> wasmtime::Result<Result<u64, sqlite::ErrorCode>> {
+        Ok(accessor.with(|mut store| {
+            let guard = store.get().conn.lock();
+            let result = guard.execute(&query, rusqlite::params_from_iter(args))?;
+            Ok(result as u64)
+        }))
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+
+    let sqlite = rusqlite::Connection::open_in_memory()?;
+    sqlite.execute(
+        "CREATE TABLE test (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) strict",
+        [],
+    )?;
+    sqlite.execute(
+        "INSERT INTO test (key, value) VALUES (?, ?)",
+        ["hello", "world"],
+    )?;
+
+    sqlite.execute(
+        "INSERT INTO test (key, value) VALUES (?, ?)",
+        ["how", "are you"],
+    )?;
 
     println!("Hello, world!");
 
@@ -138,17 +222,11 @@ async fn main() -> Result<()> {
     sqlite_add_to_linker(&mut linker)?;
 
     // questions:
-    // - initialize component how/where?
-    // - streaming response(s)?
     // - timeouts? aborting? max concurrency?
-    //
     // - if I want to reuse some generated wit bindings, can I? ah, yes, there's a "with" option in bindgen
     //
     // what would be nice to make...
     // - format html with maud?
-    // - wit bindgen for:
-    //   - sqlite storage
-    //   - init function
 
     tracing::info!("loading component");
 
@@ -165,7 +243,9 @@ async fn main() -> Result<()> {
         &engine,
         MyState {
             ctx: ctx,
-            sqlite: Default::default(),
+            sqlite: SqliteCtx {
+                conn: Arc::new(Mutex::new(sqlite)),
+            },
             http: Default::default(),
             table: Default::default(),
         },
@@ -195,7 +275,6 @@ async fn main() -> Result<()> {
             if let Err(_) = result {
                 bail!("failed to start worker");
             }
-            // println!("res {res:?}");
 
             for _i in 0..5 {
                 use tokio::sync::oneshot;
@@ -245,7 +324,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[derive(Default)]
 struct MyState {
     ctx: WasiCtx,
     sqlite: SqliteCtx,
