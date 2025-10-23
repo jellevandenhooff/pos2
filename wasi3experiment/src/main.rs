@@ -381,8 +381,10 @@ async fn main() -> Result<()> {
 
     sqlite_add_to_linker(&mut linker)?;
 
-    // questions:
-    // - timeouts? aborting? max concurrency?
+    // reasonableness:
+    // - http timeouts? aborting? max concurrency?
+    // - error wrapping/converting for sqlite?
+    // - multiple sqlite connections / pool?
     //
     // what would be nice to make...
     // - expose request/response over http?
@@ -392,7 +394,7 @@ async fn main() -> Result<()> {
 
     let component = wasmtime::component::Component::from_file(
         &engine,
-        "../target/wasm32-wasip2/debug/wasi3app.wasm",
+        "../target/wasm32-wasip2/release/wasi3app.wasm",
     )?;
 
     tracing::info!("instantiating component");

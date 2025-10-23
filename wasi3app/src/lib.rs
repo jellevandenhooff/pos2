@@ -106,6 +106,25 @@ async fn handler(
         .await
 }
 
+use bindings::jelle::test::sqlite;
+
+impl Into<sqlite::Value> for &str {
+    fn into(self) -> sqlite::Value {
+        sqlite::Value::StringValue(self.into())
+    }
+}
+
+impl TryInto<String> for &sqlite::Value {
+    type Error = anyhow::Error; // TODO: real error
+    fn try_into(self) -> Result<String, Self::Error> {
+        match self {
+            // TODO: it's too bad this copies... right now we use vec.get(0) which borrows
+            sqlite::Value::StringValue(s) => Ok(s.into()),
+            _ => anyhow::bail!("bad"), // TODO: real error
+        }
+    }
+}
+
 // impl exports::jelle::test::app::Guest for Example {}
 //
 impl bindings::Guest for Example {
@@ -119,14 +138,9 @@ impl bindings::Guest for Example {
             }
         });
 
-        use bindings::jelle::test::sqlite;
-
         let changed = sqlite::execute(
             "INSERT INTO test( key, value) VALUES (?, ?)".into(),
-            vec![
-                sqlite::Value::StringValue("from".into()),
-                sqlite::Value::StringValue("wasm".into()),
-            ],
+            vec!["from".into(), "wasm".into()],
         )
         .await
         .expect("huh");
@@ -138,10 +152,7 @@ impl bindings::Guest for Example {
             let _changed = tx
                 .execute(
                     "INSERT INTO test( key, value) VALUES (?, ?)".into(),
-                    vec![
-                        sqlite::Value::StringValue("inside".into()),
-                        sqlite::Value::StringValue("tx".into()),
-                    ],
+                    vec!["inside".into(), "tx".into()],
                 )
                 .await
                 .expect("huh");
@@ -156,7 +167,7 @@ impl bindings::Guest for Example {
             }
 
             // tx.commit().await.expect("commit");
-            tx.rollback().await.expect("rollback");
+            // tx.rollback().await.expect("rollback");
         }
 
         let rows = sqlite::query("SELECT * FROM test".into(), vec![])
@@ -164,7 +175,9 @@ impl bindings::Guest for Example {
             .expect("huh");
 
         for row in rows {
-            println!("{:?}", row);
+            let key: String = row.get(0).unwrap().try_into().unwrap();
+            let value: String = row.get(1).unwrap().try_into().unwrap();
+            println!("{key} = {value}");
         }
 
         wait_for(500_000_000).await; // 500ms
