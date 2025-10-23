@@ -1,3 +1,5 @@
+use axum::Extension;
+use bytes::BufMut;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures_core::stream::Stream;
 use http::{HeaderMap, Method};
@@ -348,13 +350,72 @@ impl sqlite::HostWithStore for Sqlite {
     }
 }
 
-async fn run_handler() -> impl axum::response::IntoResponse {
-    "hello, world"
+async fn simple_handler() -> impl axum::response::IntoResponse {
+    "huh"
 }
 
-async fn run_server() -> Result<()> {
+async fn run_handler(ext: Extension<Arc<WorkerThing>>) -> impl axum::response::IntoResponse {
+    tracing::info!("run handler start");
+    let result_future = ext
+        .submit(
+            async move |store: &Accessor<MyState>, proxy: &generated::App| {
+                tracing::info!("run handler body");
+                let body: String = "hello world".into();
+                let mut req = http::Request::new(body);
+                *req.uri_mut() = "/templated".parse().unwrap();
+
+                let (request, request_io_result) = Request::from_http(req);
+
+                let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
+
+                let res = store
+                    .with(|mut store| res.into_http(&mut store, request_io_result))
+                    .unwrap();
+
+                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+                // tx.send(res).unwrap();
+
+                // tokio::spawn(async move {
+                let resp = res; // rx.await.unwrap();
+
+                let mut combined = bytes::BytesMut::new(); // = "".into();
+
+                tracing::info!("CLOSURE {:?}", resp);
+                let (parts, body) = resp.into_parts();
+
+                tracing::info!("CLOSURE {parts:?}");
+                let mut body = body.into_data_stream();
+
+                loop {
+                    let frame = body.next().await;
+                    match frame {
+                        Some(frame) => {
+                            tracing::info!("CLOSURE frame {:?}", frame);
+                            combined.put_slice(&frame.unwrap());
+                        }
+                        None => break,
+                    }
+                }
+
+                combined.to_vec()
+            },
+        )
+        .await; // submit
+
+    tracing::info!("run handler submitted");
+    let result = result_future.await.expect("ok");
+    tracing::info!("run handler done");
+    String::from_utf8(result).unwrap()
+    // "hello, world"
+}
+
+async fn run_server(wt: Arc<WorkerThing>) -> Result<()> {
+    // drop(wt);
+    tracing::info!("running server");
     let app = axum::Router::new()
         .route("/", axum::routing::get(run_handler))
+        // .route("/", axum::routing::get(simple_handler))
+        .layer(Extension(wt))
         /*
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -366,8 +427,10 @@ async fn run_server() -> Result<()> {
         ;
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    tracing::info!("listener started");
     // tokio::spawn((async move || -> Result<()> {
     axum::serve(listener, app).await?;
+    tracing::info!("listener started");
     // Ok(())
     // })());
     Ok(())
@@ -526,28 +589,50 @@ async fn main() -> Result<()> {
                 let mut futs2 = FuturesUnordered::new();
 
                 'outer: loop {
-                    tokio::select! {
-                        _ = stop.cancelled() => {
-                            tracing::info!("work loop stopped");
-                            break 'outer;
-                        }
-                        task = recv.recv() => {
-                            let Some(task) = task else {
-                                tracing::info!("work loop none");
+                    if futs2.is_empty() {
+                        tokio::select! {
+                            _ = stop.cancelled() => {
+                                tracing::info!("work loop stopped");
                                 break 'outer;
-                            };
-                            tracing::info!("work loop working");
+                            }
+                            task = recv.recv() => {
+                                let Some(task) = task else {
+                                    tracing::info!("work loop none");
+                                    break 'outer;
+                                };
+                                tracing::info!("work loop working");
 
-                            let fut = task(store, &proxy);
-                            futs2.push(fut);
+                                let fut = task(store, &proxy);
+                                futs2.push(fut);
+                            }
                         }
-                        _next = futs2.next() => {
-                            // cool
+                    } else {
+                        tokio::select! {
+                            _ = stop.cancelled() => {
+                                tracing::info!("work loop stopped");
+                                break 'outer;
+                            }
+                            task = recv.recv() => {
+                                let Some(task) = task else {
+                                    tracing::info!("work loop none");
+                                    break 'outer;
+                                };
+                                tracing::info!("work loop working");
+
+                                let fut = task(store, &proxy);
+                                futs2.push(fut);
+                            }
+                            _next = futs2.next() => {
+                                tracing::info!("work loop spun");
+                                // cool
+                            }
                         }
                     }
                 }
 
-                while let Some(()) = futs2.next().await {}
+                while let Some(()) = futs2.next().await {
+                    tracing::info!("post work loop spun");
+                }
 
                 Ok(())
             })
@@ -602,6 +687,7 @@ async fn main() -> Result<()> {
     //
     //
     //
+    /*
     let mut futs = vec![];
     for i in 0..5 {
         let result_future = wt
@@ -651,11 +737,12 @@ async fn main() -> Result<()> {
     }
 
     futures::future::join_all(futs).await;
+    */
 
     // wt.send = None;
     // drop(wt.send);
 
-    // run_server().await?;
+    run_server(Arc::new(wt)).await?;
 
     Ok(())
 }

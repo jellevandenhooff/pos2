@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 
 use axum::body::Body;
+use tokio::sync::oneshot;
 use wasip3::clocks::monotonic_clock::wait_for;
 use wasip3::http::types::{ErrorCode, Request, Response};
 use wasip3::wit_bindgen;
@@ -79,12 +80,22 @@ async fn root() -> impl axum::response::IntoResponse {
     async_handler(value)
 }
 
+#[axum::debug_handler]
 async fn templated() -> impl axum::response::IntoResponse {
-    let value = {
-        let mut guard = STATE.lock().await;
-        *guard += 1;
-        *guard
-    };
+    let (send, recv) = tokio::sync::oneshot::channel();
+    wit_bindgen::spawn(async move {
+        let _ = sqlite::execute("UPDATE counter SET value = value + 2".into(), vec![])
+            .await
+            .expect("huh");
+
+        let rows = sqlite::query("SELECT value FROM counter".into(), vec![])
+            .await
+            .expect("huh");
+
+        let value: i64 = rows.get(0).unwrap().get(0).unwrap().try_into().unwrap();
+        send.send(value).unwrap();
+    });
+    let value = recv.await.unwrap();
 
     maud::html!(
         head {
@@ -125,6 +136,17 @@ impl TryInto<String> for &sqlite::Value {
     }
 }
 
+impl TryInto<i64> for &sqlite::Value {
+    type Error = anyhow::Error; // TODO: real error
+    fn try_into(self) -> Result<i64, Self::Error> {
+        match self {
+            // TODO: it's too bad this copies... right now we use vec.get(0) which borrows
+            sqlite::Value::S64Value(s) => Ok(*s),
+            _ => anyhow::bail!("bad"), // TODO: real error
+        }
+    }
+}
+
 // impl exports::jelle::test::app::Guest for Example {}
 //
 impl bindings::Guest for Example {
@@ -137,6 +159,17 @@ impl bindings::Guest for Example {
                 wait_for(100_000_000).await; // 100ms
             }
         });
+
+        let _ = sqlite::execute(
+            "CREATE TABLE counter (value INTEGER NOT NULL) STRICT".into(),
+            vec![],
+        )
+        .await
+        .expect("huh");
+
+        let _ = sqlite::execute("INSERT INTO counter (value) VALUES (0)".into(), vec![])
+            .await
+            .expect("huh");
 
         let changed = sqlite::execute(
             "INSERT INTO test (key, value) VALUES (?, ?)".into(),
