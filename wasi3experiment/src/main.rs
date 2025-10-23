@@ -9,6 +9,7 @@ use std::ops::Deref;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
+use tokio::sync::oneshot::error::RecvError;
 use tokio_util::sync::CancellationToken;
 use wasmtime::component::types::Case;
 use wasmtime::component::{Accessor, AsAccessor, Linker, Resource, ResourceTable};
@@ -383,35 +384,43 @@ type WorkItem = Box<
 use tokio::sync::mpsc;
 
 struct WorkerThing {
-    send: mpsc::Sender<WorkItem>,
-    recv: mpsc::Receiver<WorkItem>,
-    stop: CancellationToken,
+    send: Option<mpsc::Sender<WorkItem>>,
+    // recv: mpsc::Receiver<WorkItem>,
+    // stop: CancellationToken,
 }
 
-pub trait WorkFn<A, B>: Send + FnOnce(A, B) -> Self::Fut {
+pub trait WorkFn<A, B, O>: Send + FnOnce(A, B) -> Self::Fut {
     /// The produced subsystem future
-    type Fut: Future<Output = ()> + Send;
+    type Fut: Future<Output = O> + Send;
 }
 
-impl<A, B, Out, F> WorkFn<A, B> for F
+impl<A, B, O, Out, F> WorkFn<A, B, O> for F
 where
-    Out: Future<Output = ()> + Send,
+    Out: Future<Output = O> + Send,
     F: Send + FnOnce(A, B) -> Out,
 {
     type Fut = Out;
 }
 
 impl WorkerThing {
-    async fn submit<F>(&self, f: F)
+    async fn submit<F, O>(&self, f: F) -> impl Future<Output = Result<O, RecvError>> + 'static
     where
-        F: 'static + Send + for<'a> WorkFn<&'a Accessor<MyState>, &'a generated::App>,
+        F: 'static + Send + for<'a> WorkFn<&'a Accessor<MyState>, &'a generated::App, O>,
+        O: std::fmt::Debug + Sync + Send + 'static,
     {
-        self.send
-            .send(Box::new(|accessor, state| {
-                Box::pin(async move { f(accessor, state).await })
+        let (send, recv) = tokio::sync::oneshot::channel();
+
+        if let Some(x) = &self.send {
+            x.send(Box::new(|accessor, state| {
+                Box::pin(async move {
+                    send.send(f(accessor, state).await).unwrap();
+                })
             }))
             .await
             .unwrap();
+        }
+
+        recv
     }
 }
 
@@ -504,110 +513,120 @@ async fn main() -> Result<()> {
 
     let stop = CancellationToken::new();
     let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem>(1024);
-    let wt = WorkerThing { send, recv, stop };
+    let mut wt = WorkerThing { send: Some(send) }; // , recv, stop };
 
-    wt.submit(
-        async move |store: &Accessor<MyState>, proxy: &generated::App| {
-            let body: String = "hello world".into();
-            let req = http::Request::new(body);
-
-            let (request, request_io_result) = Request::from_http(req);
-
-            let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
-
-            let res = store
-                .with(|mut store| res.into_http(&mut store, request_io_result))
-                .unwrap();
-
-            // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-            // tx.send(res).unwrap();
-
-            // tokio::spawn(async move {
-            let resp = res; // rx.await.unwrap();
-
-            tracing::info!("CLOSURE {:?}", resp);
-            let (parts, body) = resp.into_parts();
-
-            tracing::info!("CLOSURE {parts:?}");
-            let mut body = body.into_data_stream();
-
-            loop {
-                let frame = body.next().await;
-                match frame {
-                    Some(frame) => {
-                        tracing::info!("CLOSURE frame {:?}", frame);
-                    }
-                    None => break,
+    tokio::task::spawn(async move {
+        store
+            .run_concurrent(async move |store| -> Result<_> {
+                let (result, _task) = proxy.call_initialize(store).await?;
+                if let Err(_) = result {
+                    bail!("failed to start worker");
                 }
-            }
-        },
-    )
-    .await;
 
-    let mut recv = wt.recv;
-    let stop = wt.stop;
-    drop(wt.send);
+                let mut futs2 = FuturesUnordered::new();
 
-    store
-        .run_concurrent(async move |store| -> Result<_> {
-            let mut futs = vec![];
-
-            let (result, _task) = proxy.call_initialize(store).await?;
-            if let Err(_) = result {
-                bail!("failed to start worker");
-            }
-
-            let mut futs2 = FuturesUnordered::new();
-
-            'outer: loop {
-                tokio::select! {
-                    _ = stop.cancelled() => {
-                        tracing::info!("work loop stopped");
-                        break 'outer;
-                    }
-                    task = recv.recv() => {
-                        let Some(task) = task else {
-                            tracing::info!("work loop none");
+                'outer: loop {
+                    tokio::select! {
+                        _ = stop.cancelled() => {
+                            tracing::info!("work loop stopped");
                             break 'outer;
-                        };
-                        tracing::info!("work loop working");
+                        }
+                        task = recv.recv() => {
+                            let Some(task) = task else {
+                                tracing::info!("work loop none");
+                                break 'outer;
+                            };
+                            tracing::info!("work loop working");
 
-                        let fut = task(store, &proxy);
-                        futs2.push(fut);
-                    }
-                    _next = futs2.next() => {
-                        // cool
+                            let fut = task(store, &proxy);
+                            futs2.push(fut);
+                        }
+                        _next = futs2.next() => {
+                            // cool
+                        }
                     }
                 }
-            }
 
-            // drain futs2
-            while let Some(()) = futs2.next().await {}
+                while let Some(()) = futs2.next().await {}
 
-            for i in 0..5 {
-                use tokio::sync::oneshot;
-                let (tx, rx) =
-                    oneshot::channel::<http::Response<BoxBody<bytes::Bytes, ErrorCode>>>();
+                Ok(())
+            })
+            .await
+            .unwrap()
+            .unwrap();
+    });
 
+    let result_future = wt
+        .submit(
+            async move |store: &Accessor<MyState>, proxy: &generated::App| {
                 let body: String = "hello world".into();
-                let mut req = http::Request::new(body);
-                if i == 0 {
-                    *req.uri_mut() = "/templated".parse().unwrap();
-                }
+                let req = http::Request::new(body);
 
                 let (request, request_io_result) = Request::from_http(req);
 
-                let (res, task) = proxy.handle(store, request).await??;
-                let res = store.with(|mut store| res.into_http(&mut store, request_io_result))?;
+                let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
+
+                let res = store
+                    .with(|mut store| res.into_http(&mut store, request_io_result))
+                    .unwrap();
 
                 // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-                tx.send(res).unwrap();
+                // tx.send(res).unwrap();
 
-                tokio::spawn(async move {
-                    let resp = rx.await.unwrap();
+                // tokio::spawn(async move {
+                let resp = res; // rx.await.unwrap();
 
-                    tracing::info!("{:?}", resp);
-                    let (parts, body) = resp.into_parts();
+                tracing::info!("CLOSURE {:?}", resp);
+                let (parts, body) = resp.into_parts();
+
+                tracing::info!("CLOSURE {parts:?}");
+                let mut body = body.into_data_stream();
+
+                loop {
+                    let frame = body.next().await;
+                    match frame {
+                        Some(frame) => {
+                            tracing::info!("CLOSURE frame {:?}", frame);
+                        }
+                        None => break,
+                    }
+                }
+            },
+        )
+        .await; // submit
+
+    tokio::spawn(async move {
+        result_future.await.unwrap();
+    });
+    // .await; // get resul
+    //
+    //
+    //
+    let mut futs = vec![];
+    for i in 0..5 {
+        let result_future = wt
+            .submit(
+                async move |store: &Accessor<MyState>, proxy: &generated::App| -> Result<_> {
+                    use tokio::sync::oneshot;
+                    let (tx, rx) =
+                        oneshot::channel::<http::Response<BoxBody<bytes::Bytes, ErrorCode>>>();
+
+                    let body: String = "hello world".into();
+                    let mut req = http::Request::new(body);
+                    if i == 0 {
+                        *req.uri_mut() = "/templated".parse().unwrap();
+                    }
+
+                    let (request, request_io_result) = Request::from_http(req);
+
+                    let (res, task) = proxy.handle(store, request).await??;
+                    let res =
+                        store.with(|mut store| res.into_http(&mut store, request_io_result))?;
+
+                    // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+
+                    tracing::info!("{:?}", res);
+                    let (parts, body) = res.into_parts();
 
                     tracing::info!("{parts:?}");
                     let mut body = body.into_data_stream();
@@ -621,18 +640,22 @@ async fn main() -> Result<()> {
                             None => break,
                         }
                     }
-                });
 
-                futs.push(task.block(store));
-            }
+                    task.block(store).await;
+                    Ok(())
+                },
+            )
+            .await;
 
-            futures::future::join_all(futs).await;
+        futs.push(result_future);
+    }
 
-            Ok(())
-        })
-        .await??;
+    futures::future::join_all(futs).await;
 
-    run_server().await?;
+    // wt.send = None;
+    // drop(wt.send);
+
+    // run_server().await?;
 
     Ok(())
 }
