@@ -139,7 +139,7 @@ impl bindings::Guest for Example {
         });
 
         let changed = sqlite::execute(
-            "INSERT INTO test( key, value) VALUES (?, ?)".into(),
+            "INSERT INTO test (key, value) VALUES (?, ?)".into(),
             vec!["from".into(), "wasm".into()],
         )
         .await

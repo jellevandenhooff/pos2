@@ -1,15 +1,16 @@
-use futures::stream::StreamExt;
+use futures::stream::{FuturesUnordered, StreamExt};
 use futures_core::stream::Stream;
+use http::{HeaderMap, Method};
+use http_body_util::BodyExt;
 use http_body_util::combinators::BoxBody;
 use parking_lot::Mutex;
 use std::convert::Infallible;
 use std::ops::Deref;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use wasmtime::component::types::Case;
-
-use http::{HeaderMap, Method};
-use http_body_util::BodyExt;
 use wasmtime::component::{Accessor, AsAccessor, Linker, Resource, ResourceTable};
 use wasmtime::{AsContext, Config, Engine, Result, Store, StoreContextMut};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
@@ -64,6 +65,7 @@ mod generated {
                     .push(req.into())
                     .context("failed to push request to table")
             })?;
+
             match self.wasi_http_handler().call_handle(store, req).await? {
                 (Ok(res), task) => {
                     let res = store.with(|mut store| {
@@ -345,6 +347,78 @@ impl sqlite::HostWithStore for Sqlite {
     }
 }
 
+async fn run_handler() -> impl axum::response::IntoResponse {
+    "hello, world"
+}
+
+async fn run_server() -> Result<()> {
+    let app = axum::Router::new()
+        .route("/", axum::routing::get(run_handler))
+        /*
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .layer(Extension(Arc::new(Registry::new()?)))
+        .with_state(state);
+        */
+        ;
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    // tokio::spawn((async move || -> Result<()> {
+    axum::serve(listener, app).await?;
+    // Ok(())
+    // })());
+    Ok(())
+}
+
+type WorkItem = Box<
+    dyn for<'a> FnOnce(
+            &'a Accessor<MyState>,
+            &'a generated::App,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>
+        + Send,
+>;
+
+use tokio::sync::mpsc;
+
+struct WorkerThing {
+    send: mpsc::Sender<WorkItem>,
+    recv: mpsc::Receiver<WorkItem>,
+    stop: CancellationToken,
+}
+
+/*
+pub trait WorkFn<'a>:
+    Send + FnOnce(&'a Accessor<MyState>, &'a generated::App) -> Self::Fut
+{
+    /// The produced subsystem future
+    type Fut: Future<Output = ()> + Send;
+}
+
+impl<'a, Out, F> WorkFn<'a> for F
+where
+    Out: Future<Output = ()> + Send,
+    F: Send + FnOnce(&'a Accessor<MyState>, &'a generated::App) -> Out,
+{
+    type Fut = Out;
+}
+
+impl WorkerThing {
+    async fn submit<'a, F>(&self, f: F)
+    where
+        F: 'static + Send + WorkFn<'a>,
+    {
+        self.send
+            .send(Box::new(|accessor, state| {
+                Box::pin(async move { f(accessor, state).await })
+            }))
+            .await
+            .unwrap();
+    }
+}
+*/
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -394,7 +468,7 @@ async fn main() -> Result<()> {
 
     let component = wasmtime::component::Component::from_file(
         &engine,
-        "../target/wasm32-wasip2/release/wasi3app.wasm",
+        "../target/wasm32-wasip2/debug/wasi3app.wasm",
     )?;
 
     tracing::info!("instantiating component");
@@ -414,7 +488,8 @@ async fn main() -> Result<()> {
         },
     );
 
-    let proxy = generated::App::instantiate_async(&mut store, &component, &linker).await?;
+    let proxy: generated::App =
+        generated::App::instantiate_async(&mut store, &component, &linker).await?;
 
     /*
         let proxy =
@@ -429,6 +504,58 @@ async fn main() -> Result<()> {
     // it'd be nice to (not) replicate that?
 
     // how to abstract away this api? async req -> resp, ideally?
+    //
+
+    let stop = CancellationToken::new();
+    let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem>(1024);
+    let wt = WorkerThing { send, recv, stop };
+
+    wt.send
+        .send(Box::new(|store, proxy| {
+            Box::pin(async move {
+                // wt.submit(
+                // async move |(store, proxy): &(Accessor<MyState>, generated::App)| {
+                let body: String = "hello world".into();
+                let req = http::Request::new(body);
+
+                let (request, request_io_result) = Request::from_http(req);
+
+                let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
+
+                let res = store
+                    .with(|mut store| res.into_http(&mut store, request_io_result))
+                    .unwrap();
+
+                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+                // tx.send(res).unwrap();
+
+                // tokio::spawn(async move {
+                let resp = res; // rx.await.unwrap();
+
+                tracing::info!("CLOSURE {:?}", resp);
+                let (parts, body) = resp.into_parts();
+
+                tracing::info!("CLOSURE {parts:?}");
+                let mut body = body.into_data_stream();
+
+                loop {
+                    let frame = body.next().await;
+                    match frame {
+                        Some(frame) => {
+                            tracing::info!("CLOSURE frame {:?}", frame);
+                        }
+                        None => break,
+                    }
+                }
+                // });
+            })
+        }))
+        .await;
+    // drop(send);
+
+    let mut recv = wt.recv;
+    let stop = wt.stop;
+    drop(wt.send);
 
     store
         .run_concurrent(async move |store| -> Result<_> {
@@ -438,6 +565,33 @@ async fn main() -> Result<()> {
             if let Err(_) = result {
                 bail!("failed to start worker");
             }
+
+            let mut futs2 = FuturesUnordered::new();
+
+            'outer: loop {
+                tokio::select! {
+                    _ = stop.cancelled() => {
+                        tracing::info!("work loop stopped");
+                        break 'outer;
+                    }
+                    task = recv.recv() => {
+                        let Some(task) = task else {
+                            tracing::info!("work loop none");
+                            break 'outer;
+                        };
+                        tracing::info!("work loop working");
+
+                        let fut = task(store, &proxy);
+                        futs2.push(fut);
+                    }
+                    _next = futs2.next() => {
+                        // cool
+                    }
+                    //  next = futs2.
+                }
+            }
+
+            while let Some(()) = futs2.next().await {}
 
             for i in 0..5 {
                 use tokio::sync::oneshot;
@@ -486,6 +640,8 @@ async fn main() -> Result<()> {
             Ok(())
         })
         .await??;
+
+    run_server().await?;
 
     Ok(())
 }

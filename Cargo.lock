@@ -5870,6 +5870,7 @@ name = "wasi3experiment"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "bytes",
  "futures",
  "futures-core",
@@ -5879,6 +5880,7 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "wasmtime 39.0.0",
