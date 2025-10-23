@@ -388,26 +388,23 @@ struct WorkerThing {
     stop: CancellationToken,
 }
 
-/*
-pub trait WorkFn<'a>:
-    Send + FnOnce(&'a Accessor<MyState>, &'a generated::App) -> Self::Fut
-{
+pub trait WorkFn<A, B>: Send + FnOnce(A, B) -> Self::Fut {
     /// The produced subsystem future
     type Fut: Future<Output = ()> + Send;
 }
 
-impl<'a, Out, F> WorkFn<'a> for F
+impl<A, B, Out, F> WorkFn<A, B> for F
 where
     Out: Future<Output = ()> + Send,
-    F: Send + FnOnce(&'a Accessor<MyState>, &'a generated::App) -> Out,
+    F: Send + FnOnce(A, B) -> Out,
 {
     type Fut = Out;
 }
 
 impl WorkerThing {
-    async fn submit<'a, F>(&self, f: F)
+    async fn submit<F>(&self, f: F)
     where
-        F: 'static + Send + WorkFn<'a>,
+        F: 'static + Send + for<'a> WorkFn<&'a Accessor<MyState>, &'a generated::App>,
     {
         self.send
             .send(Box::new(|accessor, state| {
@@ -417,7 +414,6 @@ impl WorkerThing {
             .unwrap();
     }
 }
-*/
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -510,48 +506,43 @@ async fn main() -> Result<()> {
     let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem>(1024);
     let wt = WorkerThing { send, recv, stop };
 
-    wt.send
-        .send(Box::new(|store, proxy| {
-            Box::pin(async move {
-                // wt.submit(
-                // async move |(store, proxy): &(Accessor<MyState>, generated::App)| {
-                let body: String = "hello world".into();
-                let req = http::Request::new(body);
+    wt.submit(
+        async move |store: &Accessor<MyState>, proxy: &generated::App| {
+            let body: String = "hello world".into();
+            let req = http::Request::new(body);
 
-                let (request, request_io_result) = Request::from_http(req);
+            let (request, request_io_result) = Request::from_http(req);
 
-                let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
+            let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
 
-                let res = store
-                    .with(|mut store| res.into_http(&mut store, request_io_result))
-                    .unwrap();
+            let res = store
+                .with(|mut store| res.into_http(&mut store, request_io_result))
+                .unwrap();
 
-                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-                // tx.send(res).unwrap();
+            // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
+            // tx.send(res).unwrap();
 
-                // tokio::spawn(async move {
-                let resp = res; // rx.await.unwrap();
+            // tokio::spawn(async move {
+            let resp = res; // rx.await.unwrap();
 
-                tracing::info!("CLOSURE {:?}", resp);
-                let (parts, body) = resp.into_parts();
+            tracing::info!("CLOSURE {:?}", resp);
+            let (parts, body) = resp.into_parts();
 
-                tracing::info!("CLOSURE {parts:?}");
-                let mut body = body.into_data_stream();
+            tracing::info!("CLOSURE {parts:?}");
+            let mut body = body.into_data_stream();
 
-                loop {
-                    let frame = body.next().await;
-                    match frame {
-                        Some(frame) => {
-                            tracing::info!("CLOSURE frame {:?}", frame);
-                        }
-                        None => break,
+            loop {
+                let frame = body.next().await;
+                match frame {
+                    Some(frame) => {
+                        tracing::info!("CLOSURE frame {:?}", frame);
                     }
+                    None => break,
                 }
-                // });
-            })
-        }))
-        .await;
-    // drop(send);
+            }
+        },
+    )
+    .await;
 
     let mut recv = wt.recv;
     let stop = wt.stop;
@@ -587,10 +578,10 @@ async fn main() -> Result<()> {
                     _next = futs2.next() => {
                         // cool
                     }
-                    //  next = futs2.
                 }
             }
 
+            // drain futs2
             while let Some(()) = futs2.next().await {}
 
             for i in 0..5 {
