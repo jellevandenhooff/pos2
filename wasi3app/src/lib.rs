@@ -45,29 +45,40 @@ lazy_static! {
     static ref STATE: tokio::sync::Mutex<u64> = tokio::sync::Mutex::new(0u64);
 }
 
-fn async_handler(counter: u64) -> impl axum::response::IntoResponse {
-    type Data = Result<Frame<Bytes>, Infallible>;
-    let (tx, rx) = tokio::sync::mpsc::channel::<Data>(2);
+use futures::Stream;
+use serde::Serialize;
 
-    // can't use axum-streams yet because it pulls in full axum (and then tokio)
+#[derive(Debug, Clone, Serialize)]
+struct MyTestStructure {
+    some_test_field: String,
+}
+
+fn my_source_stream(counter: u64) -> impl Stream<Item = MyTestStructure> {
+    let (tx, rx) = tokio::sync::mpsc::channel::<MyTestStructure>(2);
 
     wit_bindgen::spawn(async move {
-        tx.send(Ok(Frame::data(format!("hello... {counter}").into())))
-            .await
-            .unwrap();
+        tx.send(MyTestStructure {
+            some_test_field: format!("hello... {counter}").into(),
+        })
+        .await
+        .unwrap();
 
         // can't use tokio sleep yet because it does not use wasip3
         wait_for(1_000_000_000).await; // 1s
 
-        tx.send(Ok(Frame::data(format!("bye... {counter}").into())))
-            .await
-            .unwrap();
+        tx.send(MyTestStructure {
+            some_test_field: format!("bye... {counter}").into(),
+        })
+        .await
+        .unwrap();
     });
 
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let body = StreamBody::new(stream);
+    stream
+}
 
-    (StatusCode::OK, Body::new(body))
+fn async_handler(counter: u64) -> impl axum::response::IntoResponse {
+    axum_streams::StreamBodyAs::json_nl(my_source_stream(counter))
 }
 
 async fn root() -> impl axum::response::IntoResponse {
@@ -82,20 +93,21 @@ async fn root() -> impl axum::response::IntoResponse {
 
 #[axum::debug_handler]
 async fn templated() -> impl axum::response::IntoResponse {
-    let (send, recv) = tokio::sync::oneshot::channel();
-    wit_bindgen::spawn(async move {
-        let _ = sqlite::execute("UPDATE counter SET value = value + 2".into(), vec![])
-            .await
-            .expect("huh");
+    let tx = sqlite::begin().await.expect("huh");
 
-        let rows = sqlite::query("SELECT value FROM counter".into(), vec![])
-            .await
-            .expect("huh");
+    let _ = tx
+        .execute("UPDATE counter SET value = value + 1".into(), vec![])
+        .await
+        .expect("huh");
 
-        let value: i64 = rows.get(0).unwrap().get(0).unwrap().try_into().unwrap();
-        send.send(value).unwrap();
-    });
-    let value = recv.await.unwrap();
+    let rows = tx
+        .query("SELECT value FROM counter".into(), vec![])
+        .await
+        .expect("huh");
+
+    tx.commit().await.expect("huh");
+
+    let value: i64 = rows.get(0).unwrap().get(0).unwrap().try_into().unwrap();
 
     maud::html!(
         head {

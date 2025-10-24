@@ -380,6 +380,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-streams"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49debcb7f7400a7f2c96d590795c12372f4db7ad0f518d5a02286d8c8b8c691d"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures",
+ "http",
+ "http-body",
+ "serde",
+ "serde_json",
+ "tokio-stream",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5847,6 +5863,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-streams",
  "bytes",
  "futures",
  "http",
@@ -7417,8 +7434,6 @@ dependencies = [
 [[package]]
 name = "wit-bindgen"
 version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 dependencies = [
  "bitflags 2.9.4",
  "futures",
@@ -7429,8 +7444,6 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-core"
 version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cabd629f94da277abc739c71353397046401518efb2c707669f805205f0b9890"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -7440,8 +7453,6 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-rust"
 version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a4232e841089fa5f3c4fc732a92e1c74e1a3958db3b12f1de5934da2027f1f4"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -7456,8 +7467,6 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-rust-macro"
 version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e0d4698c2913d8d9c2b220d116409c3f51a7aa8d7765151b886918367179ee9"
 dependencies = [
  "anyhow",
  "prettyplease",
