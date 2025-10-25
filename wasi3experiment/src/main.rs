@@ -354,15 +354,19 @@ async fn simple_handler() -> impl axum::response::IntoResponse {
     "huh"
 }
 
-async fn run_handler(ext: Extension<Arc<WorkerThing>>) -> impl axum::response::IntoResponse {
+async fn run_handler(
+    ext: Extension<Arc<WorkerThing>>,
+    req: http::Request<axum::body::Body>,
+) -> impl axum::response::IntoResponse {
     tracing::info!("run handler start");
     let result_future = ext
         .submit(
             async move |store: &Accessor<MyState>, proxy: &generated::App| {
                 tracing::info!("run handler body");
-                let body: String = "hello world".into();
-                let mut req = http::Request::new(body);
-                *req.uri_mut() = "/templated".parse().unwrap();
+
+                let (req, body) = req.into_parts();
+                let body = body.map_err(|_| ErrorCode::HttpProtocolError);
+                let req = http::Request::from_parts(req, body);
 
                 let (request, request_io_result) = Request::from_http(req);
 
@@ -372,32 +376,7 @@ async fn run_handler(ext: Extension<Arc<WorkerThing>>) -> impl axum::response::I
                     .with(|mut store| res.into_http(&mut store, request_io_result))
                     .unwrap();
 
-                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-                // tx.send(res).unwrap();
-
-                // tokio::spawn(async move {
-                let resp = res; // rx.await.unwrap();
-
-                let mut combined = bytes::BytesMut::new(); // = "".into();
-
-                tracing::info!("CLOSURE {:?}", resp);
-                let (parts, body) = resp.into_parts();
-
-                tracing::info!("CLOSURE {parts:?}");
-                let mut body = body.into_data_stream();
-
-                loop {
-                    let frame = body.next().await;
-                    match frame {
-                        Some(frame) => {
-                            tracing::info!("CLOSURE frame {:?}", frame);
-                            combined.put_slice(&frame.unwrap());
-                        }
-                        None => break,
-                    }
-                }
-
-                combined.to_vec()
+                res
             },
         )
         .await; // submit
@@ -405,7 +384,8 @@ async fn run_handler(ext: Extension<Arc<WorkerThing>>) -> impl axum::response::I
     tracing::info!("run handler submitted");
     let result = result_future.await.expect("ok");
     tracing::info!("run handler done");
-    String::from_utf8(result).unwrap()
+    result
+    // String::from_utf8(result).unwrap()
     // "hello, world"
 }
 
@@ -414,6 +394,7 @@ async fn run_server(wt: Arc<WorkerThing>) -> Result<()> {
     tracing::info!("running server");
     let app = axum::Router::new()
         .route("/", axum::routing::get(run_handler))
+        .route("/{*rest}", axum::routing::get(run_handler))
         // .route("/", axum::routing::get(simple_handler))
         .layer(Extension(wt))
         /*
@@ -469,7 +450,7 @@ impl WorkerThing {
     async fn submit<F, O>(&self, f: F) -> impl Future<Output = Result<O, RecvError>> + 'static
     where
         F: 'static + Send + for<'a> WorkFn<&'a Accessor<MyState>, &'a generated::App, O>,
-        O: std::fmt::Debug + Sync + Send + 'static,
+        O: std::fmt::Debug + Send + 'static,
     {
         let (send, recv) = tokio::sync::oneshot::channel();
 

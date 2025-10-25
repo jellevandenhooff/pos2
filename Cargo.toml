@@ -3,5 +3,5 @@ resolver = "3"
 members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "server", "wasi3experiment", "wasi3app"]
 
 [patch.crates-io]
-wit-bindgen = { path = "../wit-bindgen/crates/guest-rust", features = ["async-spawn"] }
+wit-bindgen = { path = "../wit-bindgen/crates/guest-rust" }
 wit-bindgen-core = { path = "../wit-bindgen/crates/core" }

@@ -123,8 +123,8 @@ async fn handler(
     request: wasip3_http_wrapper::IncomingRequest,
 ) -> impl wasip3_http_wrapper::IntoResponse {
     Router::new()
-        .route("/", get(root))
         .route("/templated", get(templated))
+        .route("/", get(root))
         .call(request)
         .await
 }

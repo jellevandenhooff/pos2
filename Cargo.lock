@@ -949,7 +949,7 @@ dependencies = [
 [[package]]
 name = "cranelift-assembler-x64"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-assembler-x64-meta 0.126.0",
 ]
@@ -966,7 +966,7 @@ dependencies = [
 [[package]]
 name = "cranelift-assembler-x64-meta"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-srcgen 0.126.0",
 ]
@@ -983,7 +983,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bforest"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-entity 0.126.0",
 ]
@@ -1001,7 +1001,7 @@ dependencies = [
 [[package]]
 name = "cranelift-bitset"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "serde",
  "serde_derive",
@@ -1036,7 +1036,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "bumpalo",
  "cranelift-assembler-x64 0.126.0",
@@ -1074,7 +1074,7 @@ dependencies = [
 [[package]]
 name = "cranelift-codegen-meta"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-assembler-x64-meta 0.126.0",
  "cranelift-codegen-shared 0.126.0",
@@ -1092,7 +1092,7 @@ checksum = "976584d09f200c6c84c4b9ff7af64fc9ad0cb64dffa5780991edd3fe143a30a1"
 [[package]]
 name = "cranelift-codegen-shared"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 
 [[package]]
 name = "cranelift-control"
@@ -1106,7 +1106,7 @@ dependencies = [
 [[package]]
 name = "cranelift-control"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "arbitrary",
 ]
@@ -1125,7 +1125,7 @@ dependencies = [
 [[package]]
 name = "cranelift-entity"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-bitset 0.126.0",
  "serde",
@@ -1147,7 +1147,7 @@ dependencies = [
 [[package]]
 name = "cranelift-frontend"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-codegen 0.126.0",
  "log",
@@ -1164,7 +1164,7 @@ checksum = "711baa4e3432d4129295b39ec2b4040cc1b558874ba0a37d08e832e857db7285"
 [[package]]
 name = "cranelift-isle"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 
 [[package]]
 name = "cranelift-native"
@@ -1180,7 +1180,7 @@ dependencies = [
 [[package]]
 name = "cranelift-native"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-codegen 0.126.0",
  "libc",
@@ -1196,7 +1196,7 @@ checksum = "02e3f4d783a55c64266d17dc67d2708852235732a100fc40dd9f1051adc64d7b"
 [[package]]
 name = "cranelift-srcgen"
 version = "0.126.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 
 [[package]]
 name = "crc"
@@ -3585,7 +3585,7 @@ dependencies = [
 [[package]]
 name = "pulley-interpreter"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cranelift-bitset 0.126.0",
  "log",
@@ -3596,7 +3596,7 @@ dependencies = [
 [[package]]
 name = "pulley-macros"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6210,7 +6210,7 @@ dependencies = [
 [[package]]
 name = "wasmtime"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "addr2line 0.25.1",
  "anyhow",
@@ -6368,7 +6368,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-environ"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cpp_demangle",
@@ -6409,7 +6409,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-cache"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6428,7 +6428,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-component-macro"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "proc-macro2",
@@ -6442,12 +6442,12 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-component-util"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 
 [[package]]
 name = "wasmtime-internal-cranelift"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -6474,7 +6474,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-fiber"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cc",
@@ -6488,7 +6488,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-jit-debug"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "cc",
  "object 0.37.3",
@@ -6499,7 +6499,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-jit-icache-coherence"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -6510,7 +6510,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-math"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "libm",
 ]
@@ -6518,12 +6518,12 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-slab"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 
 [[package]]
 name = "wasmtime-internal-unwinder"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cfg-if",
@@ -6535,7 +6535,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-versioned-export-macros"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6545,7 +6545,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-winch"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cranelift-codegen 0.126.0",
@@ -6562,7 +6562,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-wit-bindgen"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "bitflags 2.9.4",
@@ -6655,7 +6655,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wasi"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6685,7 +6685,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wasi-http"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6722,7 +6722,7 @@ dependencies = [
 [[package]]
 name = "wasmtime-wasi-io"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6882,7 +6882,7 @@ dependencies = [
 [[package]]
 name = "wiggle"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "bitflags 2.9.4",
@@ -6909,7 +6909,7 @@ dependencies = [
 [[package]]
 name = "wiggle-generate"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -6934,7 +6934,7 @@ dependencies = [
 [[package]]
 name = "wiggle-macro"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6995,7 +6995,7 @@ dependencies = [
 [[package]]
 name = "winch-codegen"
 version = "39.0.0"
-source = "git+https://github.com/bytecodealliance/wasmtime.git?branch=main#7948e0ff623ec490ab3579a1f068ac10647cb578"
+source = "git+https://github.com/jellevandenhooff/wasmtime.git?branch=wasi-http-p3-unsync-box-body#72418ec309be177986645e3d091909416e922965"
 dependencies = [
  "anyhow",
  "cranelift-assembler-x64 0.126.0",
