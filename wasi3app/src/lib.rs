@@ -78,7 +78,13 @@ fn my_source_stream(counter: u64) -> impl Stream<Item = MyTestStructure> {
 }
 
 fn async_handler(counter: u64) -> impl axum::response::IntoResponse {
-    axum_streams::StreamBodyAs::json_nl(my_source_stream(counter))
+    (
+        [(
+            http::header::CONTENT_TYPE,
+            http::HeaderValue::from_static("application/json"),
+        )],
+        axum_streams::StreamBodyAs::json_nl(my_source_stream(counter)),
+    )
 }
 
 async fn root() -> impl axum::response::IntoResponse {
@@ -239,33 +245,3 @@ impl bindings::exports::wasi::http::handler::Guest for Example {
         wasip3_http_wrapper::IntoResponse::into_response(handler(request).await)
     }
 }
-
-/*
-impl wasip3::exports::http::handler::Guest for Example {
-    async fn handle(_request: Request) -> Result<Response, ErrorCode> {
-        let value = {
-            let mut guard = STATE.lock().await;
-            *guard += 1;
-            *guard
-        };
-
-        let (mut body_tx, body_rx) = wit_stream::new();
-        let (trailers_tx, trailers_rx) = wit_future::new(|| Ok(None));
-        let (response, _response_sent_result_future) =
-            Response::new(Fields::new(), Some(body_rx), trailers_rx);
-        drop(trailers_tx);
-
-        wit_bindgen::spawn(async move {
-            let remaining = body_tx
-                .write_all(format!("Hello, WASI! {}", value).into_bytes().to_vec())
-                .await;
-            assert!(remaining.is_empty());
-            wait_for(1_000_000_000).await; // 1s
-
-            let remaining = body_tx.write_all(b"Hello, again, WASI!".to_vec()).await;
-            assert!(remaining.is_empty());
-        });
-        Ok(response)
-    }
-}
-*/

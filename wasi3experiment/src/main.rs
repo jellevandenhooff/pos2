@@ -1,4 +1,5 @@
 use axum::Extension;
+use axum::handler::{Handler, HandlerWithoutStateExt};
 use bytes::BufMut;
 use futures::stream::{FuturesUnordered, StreamExt};
 use futures_core::stream::Stream;
@@ -392,25 +393,25 @@ async fn run_handler(
 async fn run_server(wt: Arc<WorkerThing>) -> Result<()> {
     // drop(wt);
     tracing::info!("running server");
-    let app = axum::Router::new()
-        .route("/", axum::routing::get(run_handler))
-        .route("/{*rest}", axum::routing::get(run_handler))
-        // .route("/", axum::routing::get(simple_handler))
-        .layer(Extension(wt))
-        /*
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        .layer(Extension(Arc::new(Registry::new()?)))
-        .with_state(state);
-        */
-        ;
+    // let app = axum::Router::new()
+    // .route("/", axum::routing::get(run_handler))
+    // .route("/{*rest}", axum::routing::get(run_handler))
+    // .route("/", axum::routing::get(simple_handler))
+    // .layer(Extension(wt))
+    /*
+    .layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        auth_middleware,
+    ))
+    .layer(Extension(Arc::new(Registry::new()?)))
+    .with_state(state);
+    */
+    let app = run_handler.layer(Extension(wt));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     tracing::info!("listener started");
     // tokio::spawn((async move || -> Result<()> {
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_service()).await?;
     tracing::info!("listener started");
     // Ok(())
     // })());

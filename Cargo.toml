@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "server", "wasi3experiment", "wasi3app"]
+members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "wasi3experiment", "wasi3app"]
 
 [patch.crates-io]
 wit-bindgen = { path = "../wit-bindgen/crates/guest-rust" }
