@@ -356,7 +356,7 @@ async fn simple_handler() -> impl axum::response::IntoResponse {
 }
 
 async fn run_handler(
-    ext: Extension<Arc<WorkerThing>>,
+    ext: Extension<Arc<WorkerThing<MyState, generated::App>>>,
     req: http::Request<axum::body::Body>,
 ) -> impl axum::response::IntoResponse {
     tracing::info!("run handler start");
@@ -390,7 +390,7 @@ async fn run_handler(
     // "hello, world"
 }
 
-async fn run_server(wt: Arc<WorkerThing>) -> Result<()> {
+async fn run_server(wt: Arc<WorkerThing<MyState, generated::App>>) -> Result<()> {
     // drop(wt);
     tracing::info!("running server");
     // let app = axum::Router::new()
@@ -418,18 +418,18 @@ async fn run_server(wt: Arc<WorkerThing>) -> Result<()> {
     Ok(())
 }
 
-type WorkItem = Box<
+type WorkItem<State, Instance> = Box<
     dyn for<'a> FnOnce(
-            &'a Accessor<MyState>,
-            &'a generated::App,
+            &'a Accessor<State>, // Accessor<MyState>,
+            &'a Instance,        // generated::App,
         ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>
         + Send,
 >;
 
 use tokio::sync::mpsc;
 
-struct WorkerThing {
-    send: Option<mpsc::Sender<WorkItem>>,
+struct WorkerThing<State: 'static, Instance> {
+    send: Option<mpsc::Sender<WorkItem<State, Instance>>>,
     // recv: mpsc::Receiver<WorkItem>,
     // stop: CancellationToken,
 }
@@ -447,10 +447,10 @@ where
     type Fut = Out;
 }
 
-impl WorkerThing {
+impl<State: Send, Instance: Send + Sync> WorkerThing<State, Instance> {
     async fn submit<F, O>(&self, f: F) -> impl Future<Output = Result<O, RecvError>> + 'static
     where
-        F: 'static + Send + for<'a> WorkFn<&'a Accessor<MyState>, &'a generated::App, O>,
+        F: 'static + Send + for<'a> WorkFn<&'a Accessor<State>, &'a Instance, O>,
         O: std::fmt::Debug + Send + 'static,
     {
         let (send, recv) = tokio::sync::oneshot::channel();
@@ -467,6 +467,45 @@ impl WorkerThing {
 
         recv
     }
+}
+
+async fn run_wt<State: Send, Instance>(
+    store: &mut Store<State>,
+    proxy: &Instance,
+    recv: &mut tokio::sync::mpsc::Receiver<WorkItem<State, Instance>>,
+    stop: CancellationToken,
+) {
+    store
+        .run_concurrent(async move |store| -> Result<_> {
+            let mut running_tasks = FuturesUnordered::new();
+
+            loop {
+                tokio::select! {
+                    _ = stop.cancelled() => {
+                        break;
+                    }
+                    task = recv.recv() => {
+                        let Some(task) = task else {
+                            break;
+                        };
+
+                        let fut = task(store, proxy);
+                        running_tasks.push(fut);
+                    }
+                    _ = running_tasks.next(), if !running_tasks.is_empty() => {
+                        // cool
+                    }
+                }
+            }
+
+            // wait for tasks to stop
+            while let Some(_) = running_tasks.next().await {}
+
+            Ok(())
+        })
+        .await
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::main]
@@ -511,7 +550,6 @@ async fn main() -> Result<()> {
     // - multiple sqlite connections / pool?
     //
     // what would be nice to make...
-    // - expose request/response over http?
     // - hide clunky stuff behind something
 
     tracing::info!("loading component");
@@ -541,188 +579,30 @@ async fn main() -> Result<()> {
     let proxy: generated::App =
         generated::App::instantiate_async(&mut store, &component, &linker).await?;
 
-    /*
-        let proxy =
-            wasmtime_wasi_http::p3::bindings::Proxy::instantiate_async(&mut store, &component, &linker)
-                .await?;
-    */
-
     tracing::info!("starting running");
 
     // there's lots of interesting timeout and queueing stuff in
     // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
     // it'd be nice to (not) replicate that?
 
-    // how to abstract away this api? async req -> resp, ideally?
-    //
-
     let stop = CancellationToken::new();
-    let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem>(1024);
-    let mut wt = WorkerThing { send: Some(send) }; // , recv, stop };
-
+    let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem<MyState, generated::App>>(1024);
+    let wt = WorkerThing { send: Some(send) };
     tokio::task::spawn(async move {
-        store
-            .run_concurrent(async move |store| -> Result<_> {
-                let (result, _task) = proxy.call_initialize(store).await?;
-                if let Err(_) = result {
-                    bail!("failed to start worker");
-                }
-
-                let mut futs2 = FuturesUnordered::new();
-
-                'outer: loop {
-                    if futs2.is_empty() {
-                        tokio::select! {
-                            _ = stop.cancelled() => {
-                                tracing::info!("work loop stopped");
-                                break 'outer;
-                            }
-                            task = recv.recv() => {
-                                let Some(task) = task else {
-                                    tracing::info!("work loop none");
-                                    break 'outer;
-                                };
-                                tracing::info!("work loop working");
-
-                                let fut = task(store, &proxy);
-                                futs2.push(fut);
-                            }
-                        }
-                    } else {
-                        tokio::select! {
-                            _ = stop.cancelled() => {
-                                tracing::info!("work loop stopped");
-                                break 'outer;
-                            }
-                            task = recv.recv() => {
-                                let Some(task) = task else {
-                                    tracing::info!("work loop none");
-                                    break 'outer;
-                                };
-                                tracing::info!("work loop working");
-
-                                let fut = task(store, &proxy);
-                                futs2.push(fut);
-                            }
-                            _next = futs2.next() => {
-                                tracing::info!("work loop spun");
-                                // cool
-                            }
-                        }
-                    }
-                }
-
-                while let Some(()) = futs2.next().await {
-                    tracing::info!("post work loop spun");
-                }
-
-                Ok(())
-            })
-            .await
-            .unwrap()
-            .unwrap();
+        run_wt(&mut store, &proxy, &mut recv, stop).await;
     });
 
-    let result_future = wt
-        .submit(
-            async move |store: &Accessor<MyState>, proxy: &generated::App| {
-                let body: String = "hello world".into();
-                let req = http::Request::new(body);
-
-                let (request, request_io_result) = Request::from_http(req);
-
-                let (res, task) = proxy.handle(store, request).await.unwrap().unwrap();
-
-                let res = store
-                    .with(|mut store| res.into_http(&mut store, request_io_result))
-                    .unwrap();
-
-                // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-                // tx.send(res).unwrap();
-
-                // tokio::spawn(async move {
-                let resp = res; // rx.await.unwrap();
-
-                tracing::info!("CLOSURE {:?}", resp);
-                let (parts, body) = resp.into_parts();
-
-                tracing::info!("CLOSURE {parts:?}");
-                let mut body = body.into_data_stream();
-
-                loop {
-                    let frame = body.next().await;
-                    match frame {
-                        Some(frame) => {
-                            tracing::info!("CLOSURE frame {:?}", frame);
-                        }
-                        None => break,
-                    }
-                }
-            },
-        )
-        .await; // submit
-
-    tokio::spawn(async move {
-        result_future.await.unwrap();
-    });
-    // .await; // get resul
-    //
-    //
-    //
-    /*
-    let mut futs = vec![];
-    for i in 0..5 {
-        let result_future = wt
-            .submit(
-                async move |store: &Accessor<MyState>, proxy: &generated::App| -> Result<_> {
-                    use tokio::sync::oneshot;
-                    let (tx, rx) =
-                        oneshot::channel::<http::Response<BoxBody<bytes::Bytes, ErrorCode>>>();
-
-                    let body: String = "hello world".into();
-                    let mut req = http::Request::new(body);
-                    if i == 0 {
-                        *req.uri_mut() = "/templated".parse().unwrap();
-                    }
-
-                    let (request, request_io_result) = Request::from_http(req);
-
-                    let (res, task) = proxy.handle(store, request).await??;
-                    let res =
-                        store.with(|mut store| res.into_http(&mut store, request_io_result))?;
-
-                    // _ = res.map(|body| body.map_err(|e| e.into()).boxed());
-
-                    tracing::info!("{:?}", res);
-                    let (parts, body) = res.into_parts();
-
-                    tracing::info!("{parts:?}");
-                    let mut body = body.into_data_stream();
-
-                    loop {
-                        let frame = body.next().await;
-                        match frame {
-                            Some(frame) => {
-                                tracing::info!("frame {:?}", frame);
-                            }
-                            None => break,
-                        }
-                    }
-
-                    task.block(store).await;
-                    Ok(())
-                },
-            )
-            .await;
-
-        futs.push(result_future);
-    }
-
-    futures::future::join_all(futs).await;
-    */
-
-    // wt.send = None;
-    // drop(wt.send);
+    wt.submit(
+        async move |store: &Accessor<MyState>, proxy: &generated::App| {
+            let (result, _task) = proxy.call_initialize(store).await?;
+            if let Err(_) = result {
+                bail!("failed to start worker");
+            }
+            Ok(())
+        },
+    )
+    .await
+    .await??;
 
     run_server(Arc::new(wt)).await?;
 
