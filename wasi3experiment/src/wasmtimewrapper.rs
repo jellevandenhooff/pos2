@@ -5,11 +5,10 @@ use tokio_util::sync::CancellationToken;
 use wasmtime::component::Accessor;
 use wasmtime::{Result, Store};
 
-
 type WorkItem<State, Instance> = Box<
     dyn for<'a> FnOnce(
-            &'a Accessor<State>, // Accessor<MyState>,
-            &'a Instance,        // generated::App,
+            &'a Accessor<State>,
+            &'a Instance,
         ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>
         + Send,
 >;
