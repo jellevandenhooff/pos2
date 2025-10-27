@@ -2,8 +2,12 @@ use anyhow::bail;
 use axum::Extension;
 use axum::response::IntoResponse;
 use http_body_util::BodyExt;
+use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
+use tokio_util::sync::CancellationToken;
 use wasmtime::component::{Accessor, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Result, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
@@ -16,7 +20,7 @@ mod wasmtimewrapper;
 mod sqlite;
 
 struct ServerState {
-    instances: HashMap<String, WasmInstance>,
+    instances: Mutex<HashMap<String, Arc<WasmInstance>>>,
 }
 
 struct WasmInstance {
@@ -75,7 +79,7 @@ impl WasmInstance {
     }
 }
 
-async fn make_wasm_instance(path: &str) -> Result<WasmInstance> {
+async fn make_wasm_instance(path: &PathBuf) -> Result<WasmInstance> {
     // there's lots of interesting timeout and queueing stuff in
     // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
     // it'd be nice to (not) replicate that?
@@ -150,7 +154,8 @@ async fn make_wasm_instance(path: &str) -> Result<WasmInstance> {
 }
 
 async fn index_handler(server: Extension<Arc<ServerState>>) -> impl axum::response::IntoResponse {
-    let apps: Vec<&String> = server.instances.keys().collect();
+    let mut apps: Vec<String> = server.instances.lock().keys().cloned().collect();
+    apps.sort();
     maud::html! {
         html {
             body {
@@ -184,7 +189,7 @@ async fn run_handler(
     let app_name = &path[..slash];
     let path: String = path[slash..].into();
 
-    let instance = server.instances.get(app_name).expect("good");
+    let instance = server.instances.lock().get(app_name).expect("good").clone();
 
     let new_path = format!("{}{}", path, query);
     uri.path_and_query = Some(new_path.parse().expect("huh"));
@@ -213,20 +218,133 @@ async fn run_server(server: Arc<ServerState>) -> Result<()> {
     Ok(())
 }
 
+async fn reload_apps() -> Result<HashMap<String, (PathBuf, SystemTime)>> {
+    let mut map = HashMap::new();
+
+    let mut entries = tokio::fs::read_dir("apps").await?;
+
+    loop {
+        let Some(entry) = entries.next_entry().await? else {
+            break;
+        };
+        let metadata = entry.metadata().await?;
+        let Ok(time) = metadata.modified() else {
+            continue;
+        };
+
+        // tracing::info!("{:?}: {:?}", entry.file_name(), time);
+        // }
+
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+
+        let Some(name) = name.strip_suffix(".wasm") else {
+            continue;
+        };
+
+        map.insert(name.into(), (entry.path(), time));
+    }
+
+    Ok(map)
+}
+
+async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>) -> Result<()> {
+    let mut previous: HashMap<String, (PathBuf, SystemTime)> = HashMap::new();
+
+    loop {
+        let current = reload_apps().await?;
+
+        let mut to_remove = vec![];
+        for (key, _) in previous.iter() {
+            if !current.contains_key(key) {
+                // to remove. do it now or plan it?
+                tracing::info!("removing {}", key);
+                to_remove.push(key.clone());
+            }
+        }
+        for key in to_remove {
+            previous.remove(&key);
+            {
+                let mut guard = state.instances.lock();
+                guard.remove(&key);
+            }
+        }
+
+        for (key, value) in current.iter() {
+            if let Some(existing) = previous.get(key) {
+                if existing == value {
+                    // ok!
+                } else {
+                    // update
+                    tracing::info!("reloading {}", key);
+                    previous.insert(key.clone(), value.clone());
+
+                    // TODO: handle errors...
+                    let instance = make_wasm_instance(&value.0).await.unwrap();
+                    {
+                        let mut guard = state.instances.lock();
+                        guard.insert(key.clone(), Arc::new(instance));
+                    }
+                }
+            } else {
+                // load first time.
+                tracing::info!("loading {}", key);
+                previous.insert(key.clone(), value.clone());
+
+                // TODO: handle errors...
+                let instance = make_wasm_instance(&value.0).await.unwrap();
+                {
+                    let mut guard = state.instances.lock();
+                    guard.insert(key.clone(), Arc::new(instance));
+                }
+            }
+        }
+
+        // TODO: announce that we have now loaded for the first time? or something like that?
+
+        tokio::select! {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+                // good
+            }
+            _ = stop.cancelled() => {
+                break
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     println!("Hello, world!");
 
-    let instance_a = make_wasm_instance("../target/wasm32-wasip2/debug/wasi3app.wasm").await?;
-    let instance_b = make_wasm_instance("../target/wasm32-wasip2/debug/wasi3app.wasm").await?;
+    // let apps = reload_apps().await?;
 
-    let server = ServerState {
-        instances: HashMap::from([("a".into(), instance_a), ("b".into(), instance_b)]),
-    };
+    let instances = HashMap::new();
 
-    run_server(Arc::new(server)).await?;
+    /*
+    for (name, (path, _)) in apps.into_iter() {
+        let instance = make_wasm_instance(&path).await?;
+        instances.insert(name, Arc::new(instance));
+    }
+    */
+
+    let server = Arc::new(ServerState {
+        instances: Mutex::new(instances),
+    });
+
+    {
+        let server = server.clone();
+        tokio::task::spawn(async move {
+            sync_apps(CancellationToken::new(), server).await.unwrap();
+        });
+    }
+
+    run_server(server.clone()).await?;
 
     Ok(())
 }

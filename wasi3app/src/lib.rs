@@ -87,7 +87,7 @@ fn async_handler(counter: u64) -> impl axum::response::IntoResponse {
     )
 }
 
-async fn root() -> impl axum::response::IntoResponse {
+async fn stream() -> impl axum::response::IntoResponse {
     let value = {
         let mut guard = STATE.lock().await;
         *guard += 1;
@@ -120,7 +120,8 @@ async fn templated() -> impl axum::response::IntoResponse {
             title { "hello" }
         }
         body {
-            "current value: " (value)
+            p { "hello there" }
+            p { "current value: " (value) }
         }
     )
 }
@@ -129,8 +130,8 @@ async fn handler(
     request: wasip3_http_wrapper::IncomingRequest,
 ) -> impl wasip3_http_wrapper::IntoResponse {
     Router::new()
-        .route("/templated", get(templated))
-        .route("/", get(root))
+        .route("/", get(templated))
+        .route("/stream", get(stream))
         .call(request)
         .await
 }
@@ -171,12 +172,14 @@ impl bindings::Guest for Example {
     async fn initialize() -> Result<(), ()> {
         // show that we can do something in the background?
         println!("hello?");
+        /*
         wit_bindgen::spawn(async move {
             for i in 0..100 {
                 println!("tick {i}");
                 wait_for(100_000_000).await; // 100ms
             }
         });
+        */
 
         let _ = sqlite::execute(
             "CREATE TABLE counter (value INTEGER NOT NULL) STRICT".into(),
@@ -231,7 +234,7 @@ impl bindings::Guest for Example {
             println!("{key} = {value}");
         }
 
-        wait_for(500_000_000).await; // 500ms
+        // wait_for(500_000_000).await; // 500ms
 
         println!("initialize about to return");
         Ok(())
