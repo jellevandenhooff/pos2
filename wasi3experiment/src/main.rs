@@ -1,23 +1,11 @@
 use axum::Extension;
 use axum::handler::{Handler, HandlerWithoutStateExt};
-use bytes::BufMut;
-use futures::stream::{FuturesUnordered, StreamExt};
-use futures_core::stream::Stream;
-use http::{HeaderMap, Method};
+use futures::stream::StreamExt;
 use http_body_util::BodyExt;
-use http_body_util::combinators::BoxBody;
-use parking_lot::Mutex;
-use std::convert::Infallible;
-use std::ops::Deref;
-use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
-use tokio::sync::oneshot::error::RecvError;
-use tokio_util::sync::CancellationToken;
-use wasmtime::component::types::Case;
-use wasmtime::component::{Accessor, AsAccessor, Linker, Resource, ResourceTable};
-use wasmtime::{AsContext, Config, Engine, Result, Store, StoreContextMut};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime::component::{Accessor, Linker, Resource, ResourceTable};
+use wasmtime::{Config, Engine, Result, Store};
+use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use wasmtime_wasi_http::p3::bindings::http::types::ErrorCode;
 use wasmtime_wasi_http::p3::{DefaultWasiHttpCtx, Request, WasiHttpCtxView, WasiHttpView};
 
@@ -356,7 +344,7 @@ async fn simple_handler() -> impl axum::response::IntoResponse {
 }
 
 async fn run_handler(
-    ext: Extension<Arc<WorkerThing<MyState, generated::App>>>,
+    ext: Extension<Arc<wasmtimewrapper::WorkSender<MyState, generated::App>>>,
     req: http::Request<axum::body::Body>,
 ) -> impl axum::response::IntoResponse {
     tracing::info!("run handler start");
@@ -390,7 +378,7 @@ async fn run_handler(
     // "hello, world"
 }
 
-async fn run_server(wt: Arc<WorkerThing<MyState, generated::App>>) -> Result<()> {
+async fn run_server(wt: Arc<wasmtimewrapper::WorkSender<MyState, generated::App>>) -> Result<()> {
     // drop(wt);
     tracing::info!("running server");
     // let app = axum::Router::new()
@@ -418,95 +406,7 @@ async fn run_server(wt: Arc<WorkerThing<MyState, generated::App>>) -> Result<()>
     Ok(())
 }
 
-type WorkItem<State, Instance> = Box<
-    dyn for<'a> FnOnce(
-            &'a Accessor<State>, // Accessor<MyState>,
-            &'a Instance,        // generated::App,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>
-        + Send,
->;
-
-use tokio::sync::mpsc;
-
-struct WorkerThing<State: 'static, Instance> {
-    send: Option<mpsc::Sender<WorkItem<State, Instance>>>,
-    // recv: mpsc::Receiver<WorkItem>,
-    // stop: CancellationToken,
-}
-
-pub trait WorkFn<A, B, O>: Send + FnOnce(A, B) -> Self::Fut {
-    /// The produced subsystem future
-    type Fut: Future<Output = O> + Send;
-}
-
-impl<A, B, O, Out, F> WorkFn<A, B, O> for F
-where
-    Out: Future<Output = O> + Send,
-    F: Send + FnOnce(A, B) -> Out,
-{
-    type Fut = Out;
-}
-
-impl<State: Send, Instance: Send + Sync> WorkerThing<State, Instance> {
-    async fn submit<F, O>(&self, f: F) -> impl Future<Output = Result<O, RecvError>> + 'static
-    where
-        F: 'static + Send + for<'a> WorkFn<&'a Accessor<State>, &'a Instance, O>,
-        O: std::fmt::Debug + Send + 'static,
-    {
-        let (send, recv) = tokio::sync::oneshot::channel();
-
-        if let Some(x) = &self.send {
-            x.send(Box::new(|accessor, state| {
-                Box::pin(async move {
-                    send.send(f(accessor, state).await).unwrap();
-                })
-            }))
-            .await
-            .unwrap();
-        }
-
-        recv
-    }
-}
-
-async fn run_wt<State: Send, Instance>(
-    store: &mut Store<State>,
-    proxy: &Instance,
-    recv: &mut tokio::sync::mpsc::Receiver<WorkItem<State, Instance>>,
-    stop: CancellationToken,
-) {
-    store
-        .run_concurrent(async move |store| -> Result<_> {
-            let mut running_tasks = FuturesUnordered::new();
-
-            loop {
-                tokio::select! {
-                    _ = stop.cancelled() => {
-                        break;
-                    }
-                    task = recv.recv() => {
-                        let Some(task) = task else {
-                            break;
-                        };
-
-                        let fut = task(store, proxy);
-                        running_tasks.push(fut);
-                    }
-                    _ = running_tasks.next(), if !running_tasks.is_empty() => {
-                        // cool
-                    }
-                }
-            }
-
-            // wait for tasks to stop
-            while let Some(_) = running_tasks.next().await {}
-
-            Ok(())
-        })
-        .await
-        .unwrap()
-        .unwrap();
-}
+mod wasmtimewrapper;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -585,26 +485,24 @@ async fn main() -> Result<()> {
     // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
     // it'd be nice to (not) replicate that?
 
-    let stop = CancellationToken::new();
-    let (send, mut recv) = tokio::sync::mpsc::channel::<WorkItem<MyState, generated::App>>(1024);
-    let wt = WorkerThing { send: Some(send) };
-    tokio::task::spawn(async move {
-        run_wt(&mut store, &proxy, &mut recv, stop).await;
-    });
+    let (sender, worker) = wasmtimewrapper::make_worker(store, proxy);
 
-    wt.submit(
-        async move |store: &Accessor<MyState>, proxy: &generated::App| {
-            let (result, _task) = proxy.call_initialize(store).await?;
-            if let Err(_) = result {
-                bail!("failed to start worker");
-            }
-            Ok(())
-        },
-    )
-    .await
-    .await??;
+    tokio::task::spawn(async move { worker.run().await });
 
-    run_server(Arc::new(wt)).await?;
+    sender
+        .submit(
+            async move |store: &Accessor<MyState>, proxy: &generated::App| {
+                let (result, _task) = proxy.call_initialize(store).await?;
+                if let Err(_) = result {
+                    bail!("failed to start worker");
+                }
+                Ok(())
+            },
+        )
+        .await
+        .await??;
+
+    run_server(Arc::new(sender)).await?;
 
     Ok(())
 }
