@@ -84,20 +84,26 @@ async fn make_wasm_instance(path: &PathBuf) -> Result<WasmInstance> {
     // https://github.com/bytecodealliance/wasmtime/blob/7948e0ff623ec490ab3579a1f068ac10647cb578/crates/wasi-http/src/handler.rs
     // it'd be nice to (not) replicate that?
 
-    let sqlite = rusqlite::Connection::open_in_memory()?;
+    let mut db_path = path.clone();
+    db_path.set_extension("sqlite3");
+
+    let sqlite = rusqlite::Connection::open(db_path)?;
     sqlite.execute(
-        "CREATE TABLE test (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) strict",
+        "CREATE TABLE IF NOT EXISTS test (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) strict",
         [],
     )?;
-    sqlite.execute(
-        "INSERT INTO test (key, value) VALUES (?, ?)",
-        ["hello", "world"],
-    )?;
 
-    sqlite.execute(
-        "INSERT INTO test (key, value) VALUES (?, ?)",
-        ["how", "are you"],
-    )?;
+    let count: i64 = sqlite.query_row("SELECT COUNT(*) FROM test", [], |row| row.get(0))?;
+    if count == 0 {
+        sqlite.execute(
+            "INSERT INTO test (key, value) VALUES (?, ?)",
+            ["hello", "world"],
+        )?;
+        sqlite.execute(
+            "INSERT INTO test (key, value) VALUES (?, ?)",
+            ["how", "are you"],
+        )?;
+    }
 
     let mut config = Config::new();
     config.async_support(true);

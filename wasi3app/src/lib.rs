@@ -120,7 +120,7 @@ async fn templated() -> impl axum::response::IntoResponse {
             title { "hello" }
         }
         body {
-            p { "hello there" }
+            p { "hey there... :)" }
             p { "current value: " (value) }
         }
     )
@@ -172,33 +172,36 @@ impl bindings::Guest for Example {
     async fn initialize() -> Result<(), ()> {
         // show that we can do something in the background?
         println!("hello?");
-        /*
         wit_bindgen::spawn(async move {
             for i in 0..100 {
                 println!("tick {i}");
                 wait_for(100_000_000).await; // 100ms
             }
         });
-        */
 
         let _ = sqlite::execute(
-            "CREATE TABLE counter (value INTEGER NOT NULL) STRICT".into(),
+            "CREATE TABLE IF NOT EXISTS counter (value INTEGER NOT NULL) STRICT".into(),
             vec![],
         )
         .await
         .expect("huh");
 
-        let _ = sqlite::execute("INSERT INTO counter (value) VALUES (0)".into(), vec![])
+        let rows = sqlite::query("SELECT COUNT(*) FROM counter".into(), vec![])
             .await
             .expect("huh");
-
-        let changed = sqlite::execute(
-            "INSERT INTO test (key, value) VALUES (?, ?)".into(),
-            vec!["from".into(), "wasm".into()],
-        )
-        .await
-        .expect("huh");
-        println!("changed: {changed}");
+        let count: i64 = (&rows[0][0]).try_into().expect("huh");
+        if count == 0 {
+            let _ = sqlite::execute("INSERT INTO counter (value) VALUES (0)".into(), vec![])
+                .await
+                .expect("huh");
+            let changed = sqlite::execute(
+                "INSERT INTO test (key, value) VALUES (?, ?)".into(),
+                vec!["from".into(), "wasm".into()],
+            )
+            .await
+            .expect("huh");
+            println!("changed: {changed}");
+        }
 
         {
             let tx = sqlite::begin().await.expect("begin");
@@ -234,7 +237,7 @@ impl bindings::Guest for Example {
             println!("{key} = {value}");
         }
 
-        // wait_for(500_000_000).await; // 500ms
+        wait_for(500_000_000).await; // 500ms
 
         println!("initialize about to return");
         Ok(())
