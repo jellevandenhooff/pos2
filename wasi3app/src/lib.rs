@@ -114,13 +114,14 @@ async fn templated() -> impl axum::response::IntoResponse {
     tx.commit().await.expect("huh");
 
     let value: i64 = rows.get(0).unwrap().get(0).unwrap().try_into().unwrap();
+    // let value: i64 = rows[0][0].try_into()?;
 
     maud::html!(
         head {
             title { "hello" }
         }
         body {
-            p { "hey there... :)" }
+            p { "hey there!!" }
             p { "current value: " (value) }
         }
     )

@@ -1,15 +1,3 @@
-mod cert;
-mod client;
-mod common;
-mod conn_handler;
-mod db;
-mod dnsserver;
-mod entity;
-mod server;
-mod sni_router;
-mod timeout_stream;
-mod web;
-
 use std::{env::args, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail};
@@ -25,11 +13,11 @@ struct Args {
     domain: Option<String>,
 }
 
-async fn make_env(args: &Args) -> Result<crate::common::Environment> {
+async fn make_env(args: &Args) -> Result<tunnel::common::Environment> {
     let env = if args.test {
-        crate::common::Environment::test(args.directory.clone()).await?
+        tunnel::common::Environment::test(args.directory.clone()).await?
     } else {
-        crate::common::Environment::prod(args.directory.clone()).await?
+        tunnel::common::Environment::prod(args.directory.clone()).await?
     };
     Ok(env)
 }
@@ -42,7 +30,7 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("help");
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // tokio::time::sleep(Duration::from_millis(100)).await;
 
     let args: Vec<_> = args().collect();
     println!("{:?}", args);
@@ -53,12 +41,13 @@ async fn main() -> Result<()> {
     // let command = args.get(1).context("need an arg")?;
     if args.command == "server" {
         let env = make_env(&args).await?;
-        let server_config = crate::common::read_json_file(&env.join_path("config.json")).await?;
-        server::server_main(env, server_config).await?;
+        let server_config = tunnel::common::read_json_file(&env.join_path("config.json")).await?;
+        tunnel::server::server_main(env, server_config).await?;
     } else if args.command == "client" {
         let env = make_env(&args).await?;
-        let client_config = crate::common::read_json_file(&env.join_path("config.json")).await?;
-        client::client_main(env, client_config).await?;
+        let client_config = tunnel::common::read_json_file(&env.join_path("config.json")).await?;
+        tunnel::client::client_main(env, tunnel::client::test_conn_handler(), client_config)
+            .await?;
     } else if args.command == "test" {
         let env = make_env(&args).await?;
         let name = args.domain.context("need domain")?;
@@ -106,13 +95,13 @@ mod tests {
         // requires pebble to be running...
         // TODO: temp dir?
         tokio::fs::create_dir_all("./unittest").await?;
-        let env = crate::common::Environment::test("./unittest".into()).await?;
+        let env = tunnel::common::Environment::test("./unittest".into()).await?;
 
-        let db = crate::db::DB::new(&env).await?;
+        let db = tunnel::db::DB::new(&env).await?;
 
         // TODO: make this write to a special temp test directory instead
-        let (dns_server_api, mut dns_server_internals) = dnsserver::make_dns_server(
-            dnsserver::Authorizer::new(db.clone()).await?,
+        let (dns_server_api, mut dns_server_internals) = tunnel::dnsserver::make_dns_server(
+            tunnel::dnsserver::Authorizer::new(db.clone()).await?,
             db,
             "tunnel.jelle.dev.".into(),
             "0.0.0.0:9999".parse()?,
@@ -129,15 +118,18 @@ mod tests {
         let hostname = "tunnel.jelle.dev";
 
         // TODO: put any limits on what records this client can write?
-        let dns_client: Arc<Box<dyn crate::dnsserver::DnsClient>> =
+        let dns_client: Arc<Box<dyn tunnel::dnsserver::DnsClient>> =
             Arc::new(Box::new(dns_server_api.clone()));
 
         // TODO: put this maintainer in its own directory??
-        let mut maintainer =
-            cert::CertMaintainer::initialize(env.clone(), vec![hostname.into()], dns_client)
-                .await?;
+        let mut maintainer = tunnel::cert::CertMaintainer::initialize(
+            env.clone(),
+            vec![hostname.into()],
+            dns_client,
+        )
+        .await?;
 
-        let config = crate::common::make_rustls_server_config(maintainer.cert_resolver())?;
+        let config = tunnel::common::make_rustls_server_config(maintainer.cert_resolver())?;
 
         tokio::spawn(async move { maintainer.maintain_certs().await });
 

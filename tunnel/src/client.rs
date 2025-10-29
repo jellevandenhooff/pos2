@@ -17,7 +17,7 @@ pub struct TunnelClient<ConnHandler> {
     pub local_hostname: String, // TODO: support multiple
     pub tunnel_server_address: String,
     pub token: String,
-    pub conn_handler: ConnHandler,
+    pub conn_handler: ConnHandler, // TODO: get rid of this generic
 }
 
 impl<ConnHandler> TunnelClient<ConnHandler>
@@ -180,6 +180,7 @@ pub struct ClientConfig {
 
 pub async fn client_main(
     env: crate::common::Environment,
+    handler: impl crate::conn_handler::ConnHandler + Clone + Send + Sync + 'static,
     client_config: ClientConfig,
 ) -> Result<()> {
     let (endpoint, domain, token) = if let Some(state) =
@@ -338,7 +339,7 @@ pub async fn client_main(
     let client = Arc::new(TunnelClient {
         env: env,
         tls_server_config: crate::common::make_rustls_server_config(cert_resolver)?,
-        conn_handler: test_conn_handler(),
+        conn_handler: handler,
         local_hostname: name.into(),
         tunnel_server_address: endpoint.into(), // TODO: get from API
         token: secret.clone(),

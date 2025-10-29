@@ -209,17 +209,20 @@ async fn run_handler(
     resp.into_response()
 }
 
-async fn run_server(server: Arc<ServerState>) -> Result<()> {
-    tracing::info!("running server");
+fn make_server(server: Arc<ServerState>) -> Result<axum::Router> {
     let app = axum::Router::new()
         .route("/", axum::routing::get(index_handler))
         .route("/{app}/", axum::routing::get(run_handler))
         .route("/{app}/{*rest}", axum::routing::get(run_handler))
         .layer(Extension(server));
+    Ok(app)
+}
 
+async fn run_server(router: axum::Router) -> Result<()> {
+    tracing::info!("running server");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     tracing::info!("listener started");
-    axum::serve(listener, app).await?;
+    axum::serve(listener, router).await?;
     tracing::info!("listener started");
     Ok(())
 }
@@ -233,19 +236,16 @@ async fn reload_apps() -> Result<HashMap<String, (PathBuf, SystemTime)>> {
         let Some(entry) = entries.next_entry().await? else {
             break;
         };
-        let metadata = entry.metadata().await?;
-        let Ok(time) = metadata.modified() else {
-            continue;
-        };
-
-        // tracing::info!("{:?}: {:?}", entry.file_name(), time);
-        // }
 
         let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
-
         let Some(name) = name.strip_suffix(".wasm") else {
+            continue;
+        };
+
+        let metadata = entry.metadata().await?;
+        let Ok(time) = metadata.modified() else {
             continue;
         };
 
@@ -289,6 +289,8 @@ async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>) -> Result<(
                     // TODO: handle errors...
                     let instance = make_wasm_instance(&value.0).await.unwrap();
                     {
+                        // TODO: completely stop existing instance
+
                         let mut guard = state.instances.lock();
                         guard.insert(key.clone(), Arc::new(instance));
                     }
@@ -326,18 +328,13 @@ async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>) -> Result<(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("help");
+
     println!("Hello, world!");
 
-    // let apps = reload_apps().await?;
-
     let instances = HashMap::new();
-
-    /*
-    for (name, (path, _)) in apps.into_iter() {
-        let instance = make_wasm_instance(&path).await?;
-        instances.insert(name, Arc::new(instance));
-    }
-    */
 
     let server = Arc::new(ServerState {
         instances: Mutex::new(instances),
@@ -350,7 +347,13 @@ async fn main() -> Result<()> {
         });
     }
 
-    run_server(server.clone()).await?;
+    let router = make_server(server.clone())?;
+    // run_server(router).await?;
+    tunnel::run_client(
+        "/Users/jelle/hack/pos2/tunnel/testing/client".into(),
+        router,
+    )
+    .await?;
 
     Ok(())
 }
