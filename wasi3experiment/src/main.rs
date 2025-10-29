@@ -334,6 +334,8 @@ async fn main() -> Result<()> {
 
     println!("Hello, world!");
 
+    // TODO: if running in docker, and have docker sock, run selfupdater
+
     let instances = HashMap::new();
 
     let server = Arc::new(ServerState {

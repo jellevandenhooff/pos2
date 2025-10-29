@@ -87,5 +87,5 @@ parking_lot = "0.12.5"
 rusqlite = "0.32.0"
 
 [patch.crates-io]
-wit-bindgen = { path = "../wit-bindgen/crates/guest-rust" }
-wit-bindgen-core = { path = "../wit-bindgen/crates/core" }
+wit-bindgen = { git = "https://github.com/jellevandenhooff/wit-bindgen.git", rev = "cd680eee4c80b232709d7ef6051bb1a330164272" } # path = "../wit-bindgen/crates/guest-rust" }
+wit-bindgen-core = { git = "https://github.com/jellevandenhooff/wit-bindgen.git", rev = "cd680eee4c80b232709d7ef6051bb1a330164272" } # path = "../wit-bindgen/crates/guest-rust" }
