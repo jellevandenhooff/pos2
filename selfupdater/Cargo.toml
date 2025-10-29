@@ -4,23 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
-axum = "0.8.5"
-bollard = "0.19.2"
-chrono = "0.4.42"
-futures = "0.3.31"
-itertools = "0.14.0"
-oci-client = "0.15.0"
-oci-spec = "0.8.2"
-r2d2 = "0.8.10"
-r2d2_sqlite = "0.25.0"
-reqwest = "0.12.23"
-rusqlite = { version = "0.32.0", features = ["bundled", "serde_json"] }
-rustix = { version = "1.1.2", features = ["system"] }
-serde = { version = "1.0.227", features = ["derive"] }
-serde_json = { version = "1.0.145", features = ["preserve_order"] }
-test-log = { version = "0.2.18", features = ["trace"] }
-tokio = { version = "1.47.1", features = ["full"] }
-tokio-util = { version = "0.7.16", features = ["full"] }
-tracing = "0.1.41"
-tracing-subscriber = "0.3.20"
+anyhow = { workspace = true }
+axum = { workspace = true }
+bollard = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+itertools = { workspace = true }
+oci-client = { workspace = true }
+oci-spec = { workspace = true }
+r2d2 = { workspace = true }
+r2d2_sqlite = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true, features = ["bundled", "serde_json"] }
+rustix = { workspace = true, features = ["system"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+test-log = { workspace = true, features = ["trace"] }
+tokio = { workspace = true, features = ["full"] }
+tokio-util = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

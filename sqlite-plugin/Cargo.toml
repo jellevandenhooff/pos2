@@ -15,11 +15,11 @@ doc-markdown = "warn"
 map-unwrap-or = "warn"
 
 [dev-dependencies]
-rusqlite = { version = "=0.32.0", features = ["blob", "trace", "bundled"] }
-parking_lot = "=0.12.5"
+rusqlite = { workspace = true, features = ["blob", "trace", "bundled"] }
+parking_lot = { workspace = true }
 
 [build-dependencies]
-bindgen = { version = "0.72", default-features = false }
+bindgen = { workspace = true }
 
 [features]
 default = []
