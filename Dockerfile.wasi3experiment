@@ -7,6 +7,7 @@ RUN mkdir -p /out
 
 RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/app/target \
   cargo build --release -p wasi3experiment && \
   cp /app/target/release/wasi3experiment /out/app
@@ -15,5 +16,5 @@ FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates
 COPY --from=build /out/app /app
 ENTRYPOINT ["/app"]
-ENV container=1
+ENV CONTAINER=1
 CMD ["/data"]

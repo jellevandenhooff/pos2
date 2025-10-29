@@ -227,10 +227,10 @@ async fn run_server(router: axum::Router) -> Result<()> {
     Ok(())
 }
 
-async fn reload_apps() -> Result<HashMap<String, (PathBuf, SystemTime)>> {
+async fn reload_apps(dir: &str) -> Result<HashMap<String, (PathBuf, SystemTime)>> {
     let mut map = HashMap::new();
 
-    let mut entries = tokio::fs::read_dir("apps").await?;
+    let mut entries = tokio::fs::read_dir(dir).await?;
 
     loop {
         let Some(entry) = entries.next_entry().await? else {
@@ -255,11 +255,11 @@ async fn reload_apps() -> Result<HashMap<String, (PathBuf, SystemTime)>> {
     Ok(map)
 }
 
-async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>) -> Result<()> {
+async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>, dir: &str) -> Result<()> {
     let mut previous: HashMap<String, (PathBuf, SystemTime)> = HashMap::new();
 
     loop {
-        let current = reload_apps().await?;
+        let current = reload_apps(dir).await?;
 
         let mut to_remove = vec![];
         for (key, _) in previous.iter() {
@@ -334,7 +334,23 @@ async fn main() -> Result<()> {
 
     println!("Hello, world!");
 
-    // TODO: if running in docker, and have docker sock, run selfupdater
+    let cancellation = selfupdater::cancellation_on_signal()?;
+    tokio::spawn(async move {
+        cancellation.cancelled().await;
+        std::process::exit(0);
+    });
+
+    let in_container = if let Ok(s) = std::env::var("CONTAINER")
+        && s != ""
+    {
+        true
+    } else {
+        false
+    };
+
+    if in_container {
+        // TODO: if have docker sock, run selfupdater
+    }
 
     let instances = HashMap::new();
 
@@ -345,14 +361,24 @@ async fn main() -> Result<()> {
     {
         let server = server.clone();
         tokio::task::spawn(async move {
-            sync_apps(CancellationToken::new(), server).await.unwrap();
+            sync_apps(
+                CancellationToken::new(),
+                server,
+                if in_container { "/data/apps" } else { "apps" },
+            )
+            .await
+            .unwrap();
         });
     }
 
     let router = make_server(server.clone())?;
     // run_server(router).await?;
     tunnel::run_client(
-        "/Users/jelle/hack/pos2/tunnel/testing/client".into(),
+        if in_container {
+            "/data/client".into()
+        } else {
+            "/Users/jelle/hack/pos2/tunnel/testing/client".into()
+        },
         router,
     )
     .await?;

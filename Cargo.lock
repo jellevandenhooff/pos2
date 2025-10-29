@@ -5630,6 +5630,7 @@ dependencies = [
  "parking_lot",
  "rusqlite",
  "rustls 0.23.34",
+ "selfupdater",
  "tokio",
  "tokio-util",
  "tracing",

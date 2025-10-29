@@ -2,5 +2,5 @@
 
 set -ex
 
-docker build -t tunnel:testing -f Dockerfile.tunnel .
-docker run --rm -it -v "$(pwd)/tunnel/testing/client:/data" tunnel:testing
+docker build -t wasi3experiment:latest -f Dockerfile.wasi3experiment .
+docker run --rm -it -v "$(pwd)/wasi3experiment/apps:/data/apps" -v "$(pwd)/tunnel/testing/client:/data/client" wasi3experiment:latest

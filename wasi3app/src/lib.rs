@@ -102,7 +102,7 @@ async fn templated() -> impl axum::response::IntoResponse {
     let tx = sqlite::begin().await.expect("huh");
 
     let _ = tx
-        .execute("UPDATE counter SET value = value + 1".into(), vec![])
+        .execute("UPDATE counter SET value = value + 10".into(), vec![])
         .await
         .expect("huh");
 

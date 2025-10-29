@@ -849,7 +849,7 @@ impl SelfUpdater {
     }
 }
 
-pub async fn cancellation_on_signal() -> Result<CancellationToken> {
+pub fn cancellation_on_signal() -> Result<CancellationToken> {
     let cancellation = tokio_util::sync::CancellationToken::new();
 
     {
@@ -883,7 +883,7 @@ async fn main() -> Result<()> {
 
     let autoupdate_enabled = true; // TODO: make a flag?
 
-    let cancellation = cancellation_on_signal().await?;
+    let cancellation = cancellation_on_signal()?;
 
     let args: Vec<_> = std::env::args().collect();
 

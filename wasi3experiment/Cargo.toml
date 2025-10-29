@@ -23,4 +23,5 @@ tracing-subscriber = { workspace = true }
 wasmtime = { workspace = true, features = ["component-model-async", "component-model-async-bytes"] }
 wasmtime-wasi = { workspace = true, features = ["p2", "p3"] }
 wasmtime-wasi-http = { workspace = true, features = ["p3"] }
+selfupdater = { workspace = true } # is there a better way to include a workspace thing?
 tunnel = { workspace = true } # is there a better way to include a workspace thing?

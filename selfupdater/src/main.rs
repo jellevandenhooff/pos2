@@ -6,7 +6,7 @@ async fn main() -> Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let cancellation = selfupdater::cancellation_on_signal().await?;
+    let cancellation = selfupdater::cancellation_on_signal()?;
 
     selfupdater::run(
         selfupdater::UpdaterConfiguration {
