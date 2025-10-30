@@ -41,8 +41,14 @@ pub struct UpdaterConfiguration {
     pub delete_unused_images_pulled_before: chrono::Duration, // XXX: yuck
 }
 
+pub async fn check_docker_connect() -> Result<bool> {
+    docker::Client::check_docker_connect().await
+}
+
 pub async fn run(config: UpdaterConfiguration, cancellation: CancellationToken) -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
+
+    tracing::info!("args {:?}", args);
 
     if args.get(1).is_some_and(|cmd| cmd == "selfupdater-helper") {
         let updater = SelfUpdater::new(config).await?;
@@ -876,6 +882,7 @@ pub fn cancellation_on_signal() -> Result<CancellationToken> {
     Ok(cancellation)
 }
 
+/*
 #[tokio::main]
 async fn main() -> Result<()> {
     let subscriber = tracing_subscriber::FmtSubscriber::new();
@@ -985,6 +992,7 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+*/
 
 #[cfg(test)]
 mod tests {

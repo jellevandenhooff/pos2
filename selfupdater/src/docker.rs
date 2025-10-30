@@ -20,6 +20,14 @@ impl Client {
         Ok(Self { client: docker })
     }
 
+    pub async fn check_docker_connect() -> Result<bool> {
+        match Docker::connect_with_local_defaults() {
+            Ok(_) => Ok(true),
+            Err(bollard::errors::Error::SocketNotFoundError(_)) => Ok(false),
+            Err(err) => bail!("unexpected error: {}", err),
+        }
+    }
+
     pub async fn check_for_new_image(&self, repo: &str, channel: &str) -> Result<String> {
         let reference_string = format!("{}:{}", repo, channel);
 

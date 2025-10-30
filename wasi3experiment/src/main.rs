@@ -334,12 +334,6 @@ async fn main() -> Result<()> {
 
     println!("Hello, world!");
 
-    let cancellation = selfupdater::cancellation_on_signal()?;
-    tokio::spawn(async move {
-        cancellation.cancelled().await;
-        std::process::exit(0);
-    });
-
     let in_container = if let Ok(s) = std::env::var("CONTAINER")
         && s != ""
     {
@@ -348,9 +342,44 @@ async fn main() -> Result<()> {
         false
     };
 
+    let cancellation = selfupdater::cancellation_on_signal()?;
+
+    // problems I just had:
+    // - name is not right
+    // - rm (and no restart? that one is tricky)
+    // - no shared selfupdater mount
+
     if in_container {
-        // TODO: if have docker sock, run selfupdater
+        tracing::info!(
+            "running inside docker (based on CONTAINER env var); checking if we have a docker socket for self updater"
+        );
+        let has_docker = selfupdater::check_docker_connect().await?;
+
+        if has_docker {
+            tracing::info!("have docker socket; running selfupdater");
+
+            // TODO: check for docker socket
+            // TODO: get from config?
+            selfupdater::run(
+                selfupdater::UpdaterConfiguration {
+                    repository: "localhost:5050/wasi3experiment".into(),
+                    tag: "testing".into(),
+                    delete_dangling_created_containers_after: chrono::Duration::seconds(30),
+                    delete_unused_containers_after: chrono::Duration::seconds(30),
+                    delete_unused_images_pulled_before: chrono::Duration::seconds(30),
+                },
+                cancellation.clone(),
+            )
+            .await?;
+        } else {
+            tracing::info!("no docker socket; not running selfupdater");
+        }
     }
+
+    tokio::spawn(async move {
+        cancellation.cancelled().await;
+        std::process::exit(0);
+    });
 
     let instances = HashMap::new();
 
