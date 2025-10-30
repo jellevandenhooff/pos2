@@ -165,6 +165,7 @@ async fn index_handler(server: Extension<Arc<ServerState>>) -> impl axum::respon
     maud::html! {
         html {
             body {
+                h1 { "Apps" }
                 @for app in apps {
                     a href=(format!("/{}/", app)) { "Check out " (app) }
                     br {}
@@ -404,7 +405,7 @@ async fn main() -> Result<()> {
     // run_server(router).await?;
     tunnel::run_client(
         if in_container {
-            "/data/client".into()
+            "/data/tunnel".into()
         } else {
             "/Users/jelle/hack/pos2/tunnel/testing/client".into()
         },
