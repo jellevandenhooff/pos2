@@ -5,6 +5,7 @@ use http_body_util::BodyExt;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio_util::sync::CancellationToken;
@@ -88,22 +89,6 @@ async fn make_wasm_instance(path: &PathBuf) -> Result<WasmInstance> {
     db_path.set_extension("sqlite3");
 
     let sqlite = rusqlite::Connection::open(db_path)?;
-    sqlite.execute(
-        "CREATE TABLE IF NOT EXISTS test (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) strict",
-        [],
-    )?;
-
-    let count: i64 = sqlite.query_row("SELECT COUNT(*) FROM test", [], |row| row.get(0))?;
-    if count == 0 {
-        sqlite.execute(
-            "INSERT INTO test (key, value) VALUES (?, ?)",
-            ["hello", "world"],
-        )?;
-        sqlite.execute(
-            "INSERT INTO test (key, value) VALUES (?, ?)",
-            ["how", "are you"],
-        )?;
-    }
 
     let mut config = Config::new();
     config.async_support(true);
@@ -166,9 +151,12 @@ async fn index_handler(server: Extension<Arc<ServerState>>) -> impl axum::respon
         html {
             body {
                 h1 { "Apps" }
-                @for app in apps {
-                    a href=(format!("/{}/", app)) { "Check out " (app) }
-                    br {}
+                ul {
+                    @for app in apps {
+                        li {
+                            a href=(format!("/{}/", app)) { "Open " (app) }
+                        }
+                    }
                 }
             }
         }
@@ -219,9 +207,9 @@ fn make_server(server: Arc<ServerState>) -> Result<axum::Router> {
     Ok(app)
 }
 
-async fn run_server(router: axum::Router) -> Result<()> {
+async fn run_server(router: axum::Router, address: &str) -> Result<()> {
     tracing::info!("running server");
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
+    let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!("listener started");
     axum::serve(listener, router).await?;
     tracing::info!("listener started");
@@ -325,6 +313,31 @@ async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>, dir: &str) 
     Ok(())
 }
 
+#[derive(serde::Deserialize, Debug)]
+struct Wasi3ExperimentConfig {
+    selfupdater: Option<SelfupdaterConfig>,
+    listener: Option<ListenerConfig>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ListenerConfig {
+    local: Option<LocalConfig>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct LocalConfig {
+    address: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct SelfupdaterConfig {
+    registry: String,
+    tag: String,
+    // delete_dangling_created_containers_after: chrono::Duration::seconds(30),
+    // delete_unused_containers_after: chrono::Duration::seconds(30),
+    // delete_unused_images_pulled_before: chrono::Duration::seconds(30),
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -333,7 +346,13 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("help");
 
-    println!("Hello, world!");
+    let config_str = tokio::fs::read_to_string("/data/config.toml").await?;
+    let config: Wasi3ExperimentConfig = toml::from_str(&config_str)?;
+
+    println!("Hello, world! config: {:?}", config);
+
+    // TODO: toml (or something?) config for listener(s)/tunnel(s), selfupdater??
+    // TODO: don't poll repo too often??
 
     let in_container = if let Ok(s) = std::env::var("CONTAINER")
         && s != ""
@@ -345,26 +364,25 @@ async fn main() -> Result<()> {
 
     let cancellation = selfupdater::cancellation_on_signal()?;
 
-    // problems I just had:
-    // - name is not right
-    // - rm (and no restart? that one is tricky)
-    // - no shared selfupdater mount
-
     if in_container {
+        // TODO: check if /data exists (volume mount done?)
+
         tracing::info!(
             "running inside docker (based on CONTAINER env var); checking if we have a docker socket for self updater"
         );
         let has_docker = selfupdater::check_docker_connect().await?;
 
-        if has_docker {
+        if has_docker && let Some(config) = config.selfupdater {
             tracing::info!("have docker socket; running selfupdater");
-
-            // TODO: check for docker socket
+            // problems I just had:
+            // - name is not right
+            // - rm (and no restart? that one is tricky)
+            // - no shared selfupdater mount
             // TODO: get from config?
             selfupdater::run(
                 selfupdater::UpdaterConfiguration {
-                    repository: "localhost:5050/wasi3experiment".into(),
-                    tag: "testing".into(),
+                    repository: config.registry, // TODO: defaults?
+                    tag: config.tag,
                     delete_dangling_created_containers_after: chrono::Duration::seconds(30),
                     delete_unused_containers_after: chrono::Duration::seconds(30),
                     delete_unused_images_pulled_before: chrono::Duration::seconds(30),
@@ -402,6 +420,17 @@ async fn main() -> Result<()> {
     }
 
     let router = make_server(server.clone())?;
+
+    if let Some(config) = config.listener {
+        if let Some(config) = config.local {
+            let router = router.clone();
+            // TODO: what about docker forwarding?
+            tokio::task::spawn(async move {
+                // XXX: error handling, shutdown?
+                run_server(router, &config.address).await.unwrap();
+            });
+        }
+    }
     // run_server(router).await?;
     tunnel::run_client(
         if in_container {

@@ -187,6 +187,13 @@ impl bindings::Guest for Example {
         .await
         .expect("huh");
 
+        let _ = sqlite::execute(
+            "CREATE TABLE IF NOT EXISTS test (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL) strict".into(),
+            vec![],
+        )
+        .await
+        .expect("huh");
+
         let rows = sqlite::query("SELECT COUNT(*) FROM counter".into(), vec![])
             .await
             .expect("huh");
