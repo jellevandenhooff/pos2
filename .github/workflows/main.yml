@@ -50,6 +50,7 @@ jobs:
         with:
           path: cache-mount
           key: cache-mount-main-${{ matrix.runner }}-${{ hashFiles('Dockerfile.wasi3experiment', 'Cargo.lock') }}
+      # TODO: do not use this cache mounts thing; it is slow. instead mount a volume?
       - name: Restore docker cache mounts
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
