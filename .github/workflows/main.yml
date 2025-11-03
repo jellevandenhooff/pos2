@@ -55,7 +55,7 @@ jobs:
         with:
           builder: ${{ steps.setup-buildx.outputs.name }}
           cache-dir: cache-mount
-          dockerfile: Dockerfile
+          dockerfile: Dockerfile.wasi3experiment
           skip-extraction: ${{ steps.cache.outputs.cache-hit }}
       - name: Build docker container
         id: push
