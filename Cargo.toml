@@ -87,6 +87,7 @@ x509-parser = "0.17.0"
 zerocopy = "0.8.27"
 parking_lot = "0.12.5"
 rusqlite = "0.32.0"
+webauthn-rs = "0.5.3"
 
 [patch.crates-io]
 wit-bindgen = { git = "https://github.com/jellevandenhooff/wit-bindgen.git", rev = "cd680eee4c80b232709d7ef6051bb1a330164272" } # path = "../wit-bindgen/crates/guest-rust" }

@@ -5,7 +5,6 @@ use http_body_util::BodyExt;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio_util::sync::CancellationToken;
@@ -154,10 +153,11 @@ async fn index_handler(server: Extension<Arc<ServerState>>) -> impl axum::respon
                 ul {
                     @for app in apps {
                         li {
-                            a href=(format!("/{}/", app)) { "Open " (app) }
+                            a href=(format!("/app/{}/", app)) { "Open " (app) }
                         }
                     }
                 }
+                a href="/auth/signup" { "Signup" }
             }
         }
     }
@@ -198,11 +198,26 @@ async fn run_handler(
     resp.into_response()
 }
 
+async fn signup_handler() -> axum::response::Response {
+    use webauthn_rs::prelude::*;
+    let rp_id = "example.com";
+    let rp_origin = Url::parse("https://idm.example.com").expect("Invalid URL");
+    let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
+    let webauthn = builder.build().expect("Invalid configuration");
+
+    let (ccr, skr) = webauthn
+        .start_passkey_registration(Uuid::new_v4(), "claire", "Claire", None)
+        .expect("Failed to start registration.");
+    // TODO: adapt https://github.com/kanidm/webauthn-rs/blob/master/tutorial/server/axum/
+    "ok".into_response()
+}
+
 fn make_server(server: Arc<ServerState>) -> Result<axum::Router> {
     let app = axum::Router::new()
         .route("/", axum::routing::get(index_handler))
-        .route("/{app}/", axum::routing::get(run_handler))
-        .route("/{app}/{*rest}", axum::routing::get(run_handler))
+        .route("/auth/signup", axum::routing::get(signup_handler))
+        .route("/apps/{app}/", axum::routing::get(run_handler))
+        .route("/apps/{app}/{*rest}", axum::routing::get(run_handler))
         .layer(Extension(server));
     Ok(app)
 }
@@ -351,8 +366,8 @@ async fn main() -> Result<()> {
 
     println!("Hello, world! config: {:?}", config);
 
-    // TODO: toml (or something?) config for listener(s)/tunnel(s), selfupdater??
-    // TODO: don't poll repo too often??
+    // TODO: don't poll repo too often?? use a registry server instead??
+    // TODO: maybe config/state in db??
 
     let in_container = if let Ok(s) = std::env::var("CONTAINER")
         && s != ""
