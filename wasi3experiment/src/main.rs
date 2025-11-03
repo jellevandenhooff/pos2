@@ -364,7 +364,7 @@ async fn main() -> Result<()> {
     let config_str = tokio::fs::read_to_string("/data/config.toml").await?;
     let config: Wasi3ExperimentConfig = toml::from_str(&config_str)?;
 
-    println!("Hello, world! config: {:?}", config);
+    println!("Hello, world! tiny change. config: {:?}", config);
 
     // TODO: don't poll repo too often?? use a registry server instead??
     // TODO: maybe config/state in db??
