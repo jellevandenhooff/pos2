@@ -49,7 +49,7 @@ jobs:
         id: cache
         with:
           path: cache-mount
-          key: cache-mount-main-${{ matrix.runner }}
+          key: cache-mount-main-${{ matrix.runner }}-${{ hashFiles('Dockerfile.wasi3experiment', 'Cargo.lock') }}
       - name: Restore docker cache mounts
         uses: reproducible-containers/buildkit-cache-dance@v3
         with:
