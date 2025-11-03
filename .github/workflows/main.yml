@@ -15,13 +15,15 @@ permissions:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        architecture:
-          - amd64
-          - arm64
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
@@ -45,6 +47,8 @@ jobs:
           context: .
           file: Dockerfile.wasi3experiment
           platforms: linux/${{ matrix.architecture }}
+          labels: ${{ steps.meta.outputs.labels}}
+          tags: ${{ steps.meta.outputs.tags }}
           push: true
       - name: Export digest
         run: |
