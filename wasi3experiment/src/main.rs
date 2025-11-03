@@ -4,6 +4,7 @@ use axum::response::IntoResponse;
 use http_body_util::BodyExt;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -153,7 +154,7 @@ async fn index_handler(server: Extension<Arc<ServerState>>) -> impl axum::respon
                 ul {
                     @for app in apps {
                         li {
-                            a href=(format!("/app/{}/", app)) { "Open " (app) }
+                            a href=(format!("/apps/{}/", app)) { "Open " (app) }
                         }
                     }
                 }
@@ -174,7 +175,8 @@ async fn run_handler(
         return "bad path".into_response();
     };
 
-    let path = &pq.path()[1..];
+    // TODO: make this parsing less janky
+    let path = &pq.path()["/apps/".len()..];
     let query = pq.query().unwrap_or("");
 
     let Some(slash) = path.find("/") else {
@@ -353,6 +355,27 @@ struct SelfupdaterConfig {
     // delete_unused_images_pulled_before: chrono::Duration::seconds(30),
 }
 
+async fn load_config_or_spin() -> Result<Wasi3ExperimentConfig> {
+    let mut printed_not_found = false;
+    loop {
+        match tokio::fs::read_to_string("/data/config.toml").await {
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                if !printed_not_found {
+                    printed_not_found = true;
+                    // TODO: figure out docker name here?
+                    tracing::info!(
+                        "config file does not exist. create it by running the setup command, with 'docker exec -it <container-name> /app setup'. waiting until configuration file exists..."
+                    );
+                }
+            }
+            Err(err) => {
+                bail!(err);
+            }
+            Ok(contents) => return Ok(toml::from_str(&contents)?),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -361,8 +384,24 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("help");
 
-    let config_str = tokio::fs::read_to_string("/data/config.toml").await?;
-    let config: Wasi3ExperimentConfig = toml::from_str(&config_str)?;
+    let cancellation = selfupdater::cancellation_on_signal()?;
+
+    {
+        let cancellation = cancellation.clone();
+        tokio::spawn(async move {
+            cancellation.cancelled().await;
+            // TODO: maybe sometimes gracefully exit instead?
+            std::process::exit(0);
+        });
+    }
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|command| command == "setup") {
+        tracing::info!("welcome to setup!");
+        return Ok(());
+    }
+
+    let config = load_config_or_spin().await?;
 
     println!("Hello, world! tiny change. config: {:?}", config);
 
@@ -376,8 +415,6 @@ async fn main() -> Result<()> {
     } else {
         false
     };
-
-    let cancellation = selfupdater::cancellation_on_signal()?;
 
     if in_container {
         // TODO: check if /data exists (volume mount done?)
@@ -409,11 +446,6 @@ async fn main() -> Result<()> {
             tracing::info!("no docker socket; not running selfupdater");
         }
     }
-
-    tokio::spawn(async move {
-        cancellation.cancelled().await;
-        std::process::exit(0);
-    });
 
     let instances = HashMap::new();
 

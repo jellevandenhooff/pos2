@@ -11,17 +11,18 @@ set -eu
 # - Auto-update with /var/run/docker.sock is mandatory
 # - Data directory is fixed
 # - No support for non-standard docker.sock location (eg. with podman?)
+# - Maybe the self-update can trigger too early?
 
 DOCKER_NAME=pos2
-DOCKER_IMAGE=ghcr.io/jellevandenhooff/pos2:main
+DOCKER_IMAGE="${DOCKER_IMAGE:-ghcr.io/jellevandenhooff/pos2:main}"
 DOCKER_SOCKET=/var/run/docker.sock
 DATA_DIR=$HOME/pos2data
+export DOCKER_CLI_HINTS=false
 
 echo
 echo "Welcome to the pos2 installer. This is extremely unstable software. Enjoy!"
-echo "The installer will first do some checks to see if docker works."
 echo
-
+echo "The installer will first do some checks to see if docker works."
 echo "Checking if docker binary exists."
 if [[ $(which docker) && $(docker --version) ]]; then
 	echo "Found docker, continuing."
@@ -49,9 +50,9 @@ if [ "$(docker ps -aq -f name='^'$DOCKER_NAME'$')" ]; then
 fi
 
 echo
-echo "The installer is now ready and, if you confirm, will create a directory"
-echo "$DATA_DIR and then start a docker container running $DOCKER_IMAGE with"
-echo "access to the $DOCKER_SOCKET."
+echo "The installer is ready to continue. if you confirm, the installer"
+echo "will create a directory $DATA_DIR and then start a docker container"
+echo "running $DOCKER_IMAGE with access to the $DOCKER_SOCKET."
 echo
 
 read -p "Do you want to continue? [y/n] " -r
@@ -70,9 +71,13 @@ docker run \
 	--name $DOCKER_NAME \
 	--restart always \
 	-d \
-	-q \
 	-v "$DATA_DIR:/data" \
 	-v "$DOCKER_SOCKET:/var/run/docker.sock" \
 	$DOCKER_IMAGE
-
-echo "TODO: jump into configuration"
+echo "Created docker container. Now $DOCKER_NAME is ready for setup."
+echo
+echo "Starting setup command inside container"
+docker exec \
+	-it \
+	$DOCKER_NAME \
+	/app setup
