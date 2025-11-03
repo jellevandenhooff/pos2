@@ -40,10 +40,10 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}
       - name: Build docker container
         id: push
-        file: Dockerfile.wasi3experiment
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.wasi3experiment
           platforms: linux/${{ matrix.architecture }}
           push: true
       - name: Export digest
