@@ -29,4 +29,5 @@ COPY --from=build /lib/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
 ENTRYPOINT ["/dockerloader"]
 ENV CONTAINER=1
 ENV RUST_LOG=info
+ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloaded:testing
 CMD []

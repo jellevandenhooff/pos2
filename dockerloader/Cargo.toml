@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 axum = { workspace = true, features = ["http1", "tokio"] }
-flate2 = { version = "1.1.5", features = ["zlib-rs"] }
+flate2 = { workspace = true, features = ["zlib-rs"] }
 futures.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client"] }
@@ -14,8 +14,8 @@ hyper-util.workspace = true
 nix.workspace = true
 oci-client = { workspace = true, features = ["rustls-tls"] }
 serde_json.workspace = true
-serial_test = "3.2.0"
-tar = "0.4.44"
+serial_test = { workspace = true }
+tar = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

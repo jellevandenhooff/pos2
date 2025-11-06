@@ -1,23 +1,13 @@
 use anyhow::{Context, Result};
 
-fn execve_entrypoint() -> Result<std::convert::Infallible> {
-    // Resolve symlink to get actual binary path
-    let real_path = std::fs::canonicalize(dockerloader::ENTRYPOINT_PATH)
-        .context("failed to resolve entrypoint symlink")?;
-    tracing::info!("resolved entrypoint to: {}", real_path.display());
-
-    // Sleep briefly to avoid race condition with Docker filesystem sync
-    std::thread::sleep(std::time::Duration::from_millis(100));
-
-    // Pass through current environment variables
-    let env: Vec<(String, String)> = std::env::vars().collect();
-
-    dockerloader::execve_into(&real_path, &env)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
+
+    if !tokio::fs::try_exists("/data").await? {
+        tracing::error!("missing /data directory; make sure it is mounted as a volume");
+        return Ok(());
+    }
 
     tracing::info!(
         "started dockerloader, checking for {}",
@@ -28,20 +18,23 @@ async fn main() -> Result<()> {
             "entrypoint {} exists, invoking it",
             dockerloader::ENTRYPOINT_PATH
         );
-        execve_entrypoint()?;
+        dockerloader::execve_into(
+            std::path::Path::new(dockerloader::ENTRYPOINT_PATH),
+            &std::env::vars().collect(),
+        )?;
     }
 
-    // TODO: get from environment?
-    // let reference = "ghcr.io/jellevandenhooff/pos2:main";
-    let reference = "host.docker.internal:5050/dockerloaded:testing";
-
+    let reference = std::env::var("DOCKERLOADER_TARGET")?;
     tracing::info!("entrypoint missing, downloading {}", reference);
-    dockerloader::download_entrypoint_initial(reference).await?;
+    dockerloader::download_entrypoint_initial(&reference).await?;
 
     tracing::info!(
         "invoking entrypoint {} after download",
         dockerloader::ENTRYPOINT_PATH
     );
-    execve_entrypoint()?;
+    dockerloader::execve_into(
+        std::path::Path::new(dockerloader::ENTRYPOINT_PATH),
+        &std::env::vars().collect(),
+    )?;
     Ok(())
 }

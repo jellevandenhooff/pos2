@@ -13,7 +13,7 @@ RUN \
   --mount=type=cache,target=/app/target \
   cargo build --release -p dockerloaded && \
   cp /app/target/release/dockerloaded /out/app && \
-  patchelf --set-rpath '$ORIGIN/lib/aarch64-linux-gnu:$ORIGIN/usr/lib/aarch64-linux-gnu:$ORIGIN/lib:$ORIGIN/usr/lib' /out/app
+  patchelf --set-rpath "$(ldconfig -v 2>/dev/null | sed '/^\t/d; s/:.*//; s|^|$ORIGIN|' | paste -sd:)" /out/app
 
 FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates
@@ -25,6 +25,7 @@ ENV FAIL_INIT=$FAIL_INIT
 ENV TIMEOUT_INIT=$TIMEOUT_INIT
 ENV CONTAINER=1
 ENV RUST_LOG=info
+RUN env > /.env
 COPY --from=build /out/app /entrypoint
 ENTRYPOINT ["/entrypoint"]
 CMD []

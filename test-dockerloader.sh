@@ -9,6 +9,7 @@ docker build -t localhost:5050/dockerloaded:testing -f Dockerfile.dockerloaded -
 docker push localhost:5050/dockerloaded:testing
 
 rm -rf $(pwd)/data/dockerloader
+sleep 1
 
 echo "First run - should download and run version 1"
 docker run --rm -v "$(pwd)/data/dockerloader:/data" dockerloader:testing
