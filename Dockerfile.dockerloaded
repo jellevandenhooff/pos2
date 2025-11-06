@@ -1,0 +1,26 @@
+FROM rust:1.90-trixie AS build
+
+WORKDIR /app
+COPY . /app
+
+RUN mkdir -p /out
+
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  --mount=type=cache,target=/app/target \
+  cargo build --release -p dockerloaded && \
+  cp /app/target/release/dockerloaded /out/app
+
+FROM scratch AS app
+ARG VERSION=unknown
+ARG FAIL_INIT=0
+ARG TIMEOUT_INIT=0
+ENV VERSION=$VERSION
+ENV FAIL_INIT=$FAIL_INIT
+ENV TIMEOUT_INIT=$TIMEOUT_INIT
+ENV CONTAINER=1
+ENV RUST_LOG=info
+COPY --from=build /out/app /entrypoint
+ENTRYPOINT ["/entrypoint"]
+CMD []

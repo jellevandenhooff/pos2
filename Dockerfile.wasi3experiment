@@ -14,6 +14,7 @@ RUN \
 
 FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates
+# TODO: add helper binary here for dockerloader plan
 COPY --from=build /out/app /app
 ENTRYPOINT ["/app"]
 ENV CONTAINER=1

@@ -1,0 +1,34 @@
+FROM rust:1.90-trixie AS build
+
+ENV TARGET=aarch64-unknown-linux-musl
+
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  --mount=type=cache,target=/app/target \
+  rustup target add $TARGET
+  
+WORKDIR /app
+COPY . /app
+
+RUN mkdir -p /out
+
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  --mount=type=cache,target=/app/target \
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
+  CC=aarch64-linux-gnu-gcc \
+  cargo build --target $TARGET --release -p dockerloader && \
+  cp /app/target/$TARGET/release/dockerloader /out/app
+
+FROM scratch AS app
+# RUN apt-get update && apt-get install -y ca-certificates
+COPY --from=build /out/app /dockerloader
+# hmm... wish could we get rid of this
+# todo: arch...
+COPY --from=build /lib/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
+ENTRYPOINT ["/dockerloader"]
+ENV CONTAINER=1
+ENV RUST_LOG=info
+CMD []
