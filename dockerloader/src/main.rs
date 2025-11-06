@@ -6,17 +6,13 @@ fn execve_entrypoint() -> Result<std::convert::Infallible> {
         .context("failed to resolve entrypoint symlink")?;
     tracing::info!("resolved entrypoint to: {}", real_path.display());
 
-    let real_path_str = real_path
-        .to_str()
-        .context("entrypoint path not valid utf-8")?;
-
     // Sleep briefly to avoid race condition with Docker filesystem sync
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Pass through current environment variables
     let env: Vec<(String, String)> = std::env::vars().collect();
 
-    dockerloader::execve_into(real_path_str, &env)
+    dockerloader::execve_into(&real_path, &env)
 }
 
 #[tokio::main]

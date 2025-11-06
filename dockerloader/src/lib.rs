@@ -3,14 +3,17 @@ pub const ENTRYPOINT_PATH: &str = "/data/dockerloader/entrypoint";
 use anyhow::{Result, bail};
 use flate2::read::GzDecoder;
 use futures::StreamExt;
+use std::path::{Path, PathBuf};
 use tar::Archive;
 use tokio::io::AsyncWriteExt;
 
 use oci_client::{Reference, manifest::OciImageManifest};
 
-pub fn execve_into(path: &str, env: &[(String, String)]) -> Result<std::convert::Infallible> {
+pub fn execve_into(path: &Path, env: &[(String, String)]) -> Result<std::convert::Infallible> {
     use std::ffi::CString;
-    let path_cstr = CString::new(path)?;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path_cstr = CString::new(path.as_os_str().as_bytes())?;
     let args = vec![path_cstr.clone()];
     let env: Vec<CString> = env
         .iter()
@@ -65,14 +68,15 @@ async fn download_layer(
     client: &oci_client::Client,
     image: &Reference,
     descriptor: &str,
-) -> Result<String> {
-    tokio::fs::create_dir_all("/data/dockerloader/storage/v1/blobs/").await?;
+) -> Result<PathBuf> {
+    let blobs_dir = PathBuf::from("/data/dockerloader/storage/v1/blobs");
+    tokio::fs::create_dir_all(&blobs_dir).await?;
 
-    let final_path = format!("/data/dockerloader/storage/v1/blobs/{}", descriptor);
+    let final_path = blobs_dir.join(descriptor);
     if let Ok(true) = tokio::fs::try_exists(&final_path).await {
         return Ok(final_path);
     }
-    let tmp_path = format!("/data/dockerloader/storage/v1/blobs/tmp-{}", uuid());
+    let tmp_path = blobs_dir.join(format!("tmp-{}", uuid()));
 
     // mkdir all
     // TODO: progress tracking somehow/somewhere?
@@ -88,7 +92,7 @@ async fn download_layer(
         file.write(&chunk).await?;
     }
 
-    tokio::fs::rename(tmp_path, &final_path).await?;
+    tokio::fs::rename(&tmp_path, &final_path).await?;
 
     Ok(final_path)
 }
@@ -153,14 +157,15 @@ pub async fn download_manifest(
 }
 
 pub async fn download_image(client: &oci_client::Client, reference: &Reference) -> Result<String> {
-    tokio::fs::create_dir_all("/data/dockerloader/storage/v1/images/").await?;
+    let images_dir = PathBuf::from("/data/dockerloader/storage/v1/images");
+    tokio::fs::create_dir_all(&images_dir).await?;
 
-    let tmp_path = format!("/data/dockerloader/storage/v1/images/tmp-{}", uuid());
+    let tmp_path = images_dir.join(format!("tmp-{}", uuid()));
 
     let (reference, manifest, sha) = download_manifest(client, reference).await?;
 
     let manifest_json = serde_json::to_string_pretty(&manifest)?;
-    tokio::fs::write(&tmp_path, &manifest_json).await?; // FIX PATH
+    tokio::fs::write(&tmp_path, &manifest_json).await?;
 
     // Download the config blob
     download_layer(client, &reference, &manifest.config.digest).await?;
@@ -169,30 +174,33 @@ pub async fn download_image(client: &oci_client::Client, reference: &Reference) 
         download_layer(client, &reference, &layer.digest).await?;
     }
 
-    let final_path = format!("/data/dockerloader/storage/v1/images/{}", sha);
-    tokio::fs::rename(tmp_path, final_path).await?;
+    let final_path = images_dir.join(&sha);
+    tokio::fs::rename(&tmp_path, &final_path).await?;
 
     Ok(sha)
 }
 
-pub async fn extract_image(sha: &str) -> Result<String> {
-    let final_path = format!("/data/dockerloader/storage/v1/extracted/{}", sha);
+pub async fn extract_image(sha: &str) -> Result<PathBuf> {
+    let extracted_dir = PathBuf::from("/data/dockerloader/storage/v1/extracted");
+    let final_path = extracted_dir.join(sha);
     if let Ok(true) = tokio::fs::try_exists(&final_path).await {
         return Ok(final_path);
     }
 
-    let tmp_path = format!("/data/dockerloader/storage/v1/extracted/tmp-{}", uuid());
+    let tmp_path = extracted_dir.join(format!("tmp-{}", uuid()));
 
     tokio::fs::create_dir_all(&tmp_path).await?;
 
-    let manifest_json =
-        tokio::fs::read_to_string(format!("/data/dockerloader/storage/v1/images/{}", sha)).await?;
+    let images_dir = PathBuf::from("/data/dockerloader/storage/v1/images");
+    let manifest_path = images_dir.join(sha);
+    let manifest_json = tokio::fs::read_to_string(&manifest_path).await?;
     let manifest: OciImageManifest = serde_json::from_str(&manifest_json)?;
 
     // TODO: this blocks task?
+    let blobs_dir = PathBuf::from("/data/dockerloader/storage/v1/blobs");
     for layer in manifest.layers {
-        let path = format!("/data/dockerloader/storage/v1/blobs/{}", layer.digest); // FIX PATH
-        let tar_gz = std::fs::File::open(path)?;
+        let blob_path = blobs_dir.join(&layer.digest);
+        let tar_gz = std::fs::File::open(&blob_path)?;
         let tar = GzDecoder::new(tar_gz);
         let mut archive = Archive::new(tar);
         archive.unpack(&tmp_path)?;
@@ -216,14 +224,15 @@ pub async fn download_entrypoint_initial(reference: &str) -> Result<()> {
     let reference: oci_client::Reference = reference.try_into()?;
 
     let sha = download_image(&oci_client, &reference).await?;
-    let path = extract_image(&sha).await?;
+    let extracted_path = extract_image(&sha).await?;
 
     // Ensure the parent directory exists
-    if let Some(parent) = std::path::Path::new(ENTRYPOINT_PATH).parent() {
+    if let Some(parent) = Path::new(ENTRYPOINT_PATH).parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    tokio::fs::symlink(format!("{}/entrypoint", path), ENTRYPOINT_PATH).await?;
+    let entrypoint_source = extracted_path.join("entrypoint");
+    tokio::fs::symlink(&entrypoint_source, ENTRYPOINT_PATH).await?;
 
     Ok(())
 }

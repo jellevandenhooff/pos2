@@ -105,7 +105,7 @@ async fn perform_update(
     }
 
     let extracted_path = dockerloader::extract_image(&downloaded_sha).await?;
-    let new_entrypoint = format!("{}/entrypoint", extracted_path);
+    let new_entrypoint = extracted_path.join("entrypoint");
 
     // Mark that we're attempting this update
     // If the trial fails, this file will remain and prevent retrying the same SHA
@@ -113,7 +113,7 @@ async fn perform_update(
         .await
         .context("failed to write update-attempt marker")?;
 
-    tracing::info!("execve into {} for trial", new_entrypoint);
+    tracing::info!("execve into {:?} for trial", new_entrypoint);
 
     // Build environment with DOCKERLOADER_TRIAL=1 added to original env
     let mut trial_env = original_env.to_vec();
@@ -172,14 +172,17 @@ async fn main() -> Result<()> {
         let current_entrypoint =
             std::env::current_exe().context("failed to get current executable")?;
         let entrypoint_path = dockerloader::ENTRYPOINT_PATH;
-        let tmp_symlink = format!("{}.tmp", entrypoint_path);
 
         // Create new symlink at temporary location
+        let tmp_symlink = format!("{}.tmp", entrypoint_path);
+        if let Ok(true) = tokio::fs::try_exists(&tmp_symlink).await {
+            tokio::fs::remove_file(&tmp_symlink).await?;
+        }
         tokio::fs::symlink(&current_entrypoint, &tmp_symlink)
             .await
             .context("failed to create temporary symlink")?;
 
-        // Atomically replace the old symlink
+        // Replace the old symlink
         tokio::fs::rename(&tmp_symlink, entrypoint_path)
             .await
             .context("failed to update entrypoint symlink")?;
