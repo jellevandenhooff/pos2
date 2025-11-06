@@ -8,6 +8,17 @@ use tokio::io::AsyncWriteExt;
 
 use oci_client::{Reference, manifest::OciImageManifest};
 
+pub fn execve_into(path: &str, env: &[(String, String)]) -> Result<std::convert::Infallible> {
+    use std::ffi::CString;
+    let path_cstr = CString::new(path)?;
+    let args = vec![path_cstr.clone()];
+    let env: Vec<CString> = env
+        .iter()
+        .map(|(key, value)| CString::new(format!("{}={}", key, value)))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(nix::unistd::execve(&path_cstr, &args, &env)?)
+}
+
 // TODO: fsync???
 fn uuid() -> String {
     uuid::Uuid::new_v4().hyphenated().to_string()

@@ -10,19 +10,6 @@ async fn was_update_attempted(sha: &str) -> bool {
     }
 }
 
-fn execve_into(path: &str, env: &[(String, String)]) -> Result<std::convert::Infallible> {
-    // TODO: share with dockerloader code
-    // TODO: .envrc
-    use std::ffi::CString;
-    let path_cstr = CString::new(path)?;
-    let args = vec![path_cstr.clone()];
-    let env: Vec<CString> = env
-        .iter()
-        .map(|(key, value)| CString::new(format!("{}={}", key, value)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(nix::unistd::execve(&path_cstr, &args, &env)?)
-}
-
 async fn apply_image_env_vars(sha: &str) -> Result<()> {
     // Read the manifest to get config digest
     let manifest_path = format!("/data/dockerloader/storage/v1/images/{}", sha);
@@ -133,7 +120,7 @@ async fn perform_update(
     trial_env.push(("DOCKERLOADER_TRIAL".to_string(), "1".to_string()));
 
     // Execve into new binary with trial mode enabled
-    execve_into(&new_entrypoint, &trial_env)
+    dockerloader::execve_into(&new_entrypoint, &trial_env)
 }
 
 #[tokio::main]

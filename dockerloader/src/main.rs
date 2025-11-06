@@ -1,18 +1,22 @@
-use anyhow::Result;
-use std::ffi::CString;
+use anyhow::{Context, Result};
 
 fn execve_entrypoint() -> Result<std::convert::Infallible> {
-    let entrypoint = CString::new(dockerloader::ENTRYPOINT_PATH)?;
+    // Resolve symlink to get actual binary path
+    let real_path = std::fs::canonicalize(dockerloader::ENTRYPOINT_PATH)
+        .context("failed to resolve entrypoint symlink")?;
+    tracing::info!("resolved entrypoint to: {}", real_path.display());
 
-    // Pass entrypoint as argv[0]
-    let args = vec![entrypoint.clone()];
+    let real_path_str = real_path
+        .to_str()
+        .context("entrypoint path not valid utf-8")?;
+
+    // Sleep briefly to avoid race condition with Docker filesystem sync
+    std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Pass through current environment variables
-    let env: Vec<CString> = std::env::vars()
-        .map(|(key, value)| CString::new(format!("{}={}", key, value)))
-        .collect::<Result<Vec<_>, _>>()?;
+    let env: Vec<(String, String)> = std::env::vars().collect();
 
-    Ok(nix::unistd::execve(&entrypoint, &args, &env)?)
+    dockerloader::execve_into(real_path_str, &env)
 }
 
 #[tokio::main]
