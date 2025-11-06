@@ -105,7 +105,7 @@ async fn perform_update(
     }
 
     let extracted_path = dockerloader::extract_image(&downloaded_sha).await?;
-    let new_entrypoint = format!("{}/entrypoint", extracted_path);
+    let new_entrypoint = extracted_path.join("entrypoint");
 
     // Mark that we're attempting this update
     // If the trial fails, this file will remain and prevent retrying the same SHA

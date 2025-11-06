@@ -9,9 +9,9 @@ use tokio::io::AsyncWriteExt;
 
 use oci_client::{Reference, manifest::OciImageManifest};
 
-pub fn execve_into(path: &str, env: &[(String, String)]) -> Result<std::convert::Infallible> {
+pub fn execve_into(path: &Path, env: &[(String, String)]) -> Result<std::convert::Infallible> {
     use std::ffi::CString;
-    let path_cstr = CString::new(path)?;
+    let path_cstr = CString::new(path.as_os_str().as_encoded_bytes())?;
     let args = vec![path_cstr.clone()];
     let env: Vec<CString> = env
         .iter()
@@ -66,13 +66,13 @@ async fn download_layer(
     client: &oci_client::Client,
     image: &Reference,
     descriptor: &str,
-) -> Result<String> {
+) -> Result<PathBuf> {
     let blobs_dir = PathBuf::from("/data/dockerloader/storage/v1/blobs");
     tokio::fs::create_dir_all(&blobs_dir).await?;
 
     let final_path = blobs_dir.join(descriptor);
     if let Ok(true) = tokio::fs::try_exists(&final_path).await {
-        return Ok(final_path.to_string_lossy().into_owned());
+        return Ok(final_path);
     }
     let tmp_path = blobs_dir.join(format!("tmp-{}", uuid()));
 
@@ -92,7 +92,7 @@ async fn download_layer(
 
     tokio::fs::rename(&tmp_path, &final_path).await?;
 
-    Ok(final_path.to_string_lossy().into_owned())
+    Ok(final_path)
 }
 
 pub async fn download_manifest(
@@ -178,11 +178,11 @@ pub async fn download_image(client: &oci_client::Client, reference: &Reference) 
     Ok(sha)
 }
 
-pub async fn extract_image(sha: &str) -> Result<String> {
+pub async fn extract_image(sha: &str) -> Result<PathBuf> {
     let extracted_dir = PathBuf::from("/data/dockerloader/storage/v1/extracted");
     let final_path = extracted_dir.join(sha);
     if let Ok(true) = tokio::fs::try_exists(&final_path).await {
-        return Ok(final_path.to_string_lossy().into_owned());
+        return Ok(final_path);
     }
 
     let tmp_path = extracted_dir.join(format!("tmp-{}", uuid()));
@@ -206,7 +206,7 @@ pub async fn extract_image(sha: &str) -> Result<String> {
 
     tokio::fs::rename(&tmp_path, &final_path).await?;
 
-    Ok(final_path.to_string_lossy().into_owned())
+    Ok(final_path)
 }
 
 pub fn create_oci_client() -> oci_client::Client {
@@ -223,7 +223,6 @@ pub async fn download_entrypoint_initial(reference: &str) -> Result<()> {
 
     let sha = download_image(&oci_client, &reference).await?;
     let extracted_path = extract_image(&sha).await?;
-    let extracted_path = PathBuf::from(extracted_path);
 
     // Ensure the parent directory exists
     if let Some(parent) = Path::new(ENTRYPOINT_PATH).parent() {
