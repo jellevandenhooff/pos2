@@ -113,7 +113,7 @@ async fn perform_update(
         .await
         .context("failed to write update-attempt marker")?;
 
-    tracing::info!("execve into {} for trial", new_entrypoint);
+    tracing::info!("execve into {} for trial", new_entrypoint.display());
 
     // Build environment with DOCKERLOADER_TRIAL=1 added to original env
     let mut trial_env = original_env.to_vec();
