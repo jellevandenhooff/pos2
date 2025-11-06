@@ -11,7 +11,9 @@ use oci_client::{Reference, manifest::OciImageManifest};
 
 pub fn execve_into(path: &Path, env: &[(String, String)]) -> Result<std::convert::Infallible> {
     use std::ffi::CString;
-    let path_cstr = CString::new(path.as_os_str().as_encoded_bytes())?;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path_cstr = CString::new(path.as_os_str().as_bytes())?;
     let args = vec![path_cstr.clone()];
     let env: Vec<CString> = env
         .iter()
