@@ -1,6 +1,16 @@
 FROM rust:1.90-trixie AS build
 
+ARG TARGETARCH
+
 RUN apt-get update && apt-get install -y patchelf
+
+# Set architecture-specific variables in a helper script
+RUN printf '#!/bin/sh\n\
+if [ "$TARGETARCH" = "amd64" ]; then\n\
+  echo "export LIB_ARCH=x86_64-linux-gnu"\n\
+elif [ "$TARGETARCH" = "arm64" ]; then\n\
+  echo "export LIB_ARCH=aarch64-linux-gnu"\n\
+fi\n' > /tmp/arch-vars.sh && chmod +x /tmp/arch-vars.sh
 
 WORKDIR /app
 COPY . /app
@@ -12,8 +22,11 @@ RUN \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/app/target \
   cargo build --release -p dockerloaded && \
-  cp /app/target/release/dockerloaded /out/app && \
-  patchelf --set-rpath '$ORIGIN/lib/aarch64-linux-gnu:$ORIGIN/usr/lib/aarch64-linux-gnu:$ORIGIN/lib:$ORIGIN/usr/lib' /out/app
+  cp /app/target/release/dockerloaded /out/app
+
+# Set rpath based on architecture
+RUN . <(/tmp/arch-vars.sh) && \
+    patchelf --set-rpath "\$ORIGIN/lib/$LIB_ARCH:\$ORIGIN/usr/lib/$LIB_ARCH:\$ORIGIN/lib:\$ORIGIN/usr/lib" /out/app
 
 FROM debian:trixie-slim AS app
 RUN apt-get update && apt-get install -y ca-certificates

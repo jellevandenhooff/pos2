@@ -1,31 +1,48 @@
 FROM rust:1.90-trixie AS build
 
-ENV TARGET=aarch64-unknown-linux-musl
+ARG TARGETARCH
 
-RUN \
-  --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/usr/local/cargo/git \
-  --mount=type=cache,target=/app/target \
-  rustup target add $TARGET
-  
+# Set architecture-specific variables in a helper script
+RUN printf '#!/bin/sh\n\
+if [ "$TARGETARCH" = "amd64" ]; then\n\
+  echo "export RUST_TARGET=x86_64-unknown-linux-musl"\n\
+  echo "export LINKER_SRC=/lib64/ld-linux-x86-64.so.2"\n\
+  echo "export LINKER_DST=/out/lib64/ld-linux-x86-64.so.2"\n\
+elif [ "$TARGETARCH" = "arm64" ]; then\n\
+  echo "export RUST_TARGET=aarch64-unknown-linux-musl"\n\
+  echo "export CROSS_CC=aarch64-linux-gnu-gcc"\n\
+  echo "export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc"\n\
+  echo "export LINKER_SRC=/lib/ld-linux-aarch64.so.1"\n\
+  echo "export LINKER_DST=/out/lib/ld-linux-aarch64.so.1"\n\
+fi\n' > /tmp/arch-vars.sh && chmod +x /tmp/arch-vars.sh
+
+# Install cross-compilation tools for arm64
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+      apt-get update && apt-get install -y gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+# Add Rust target
+RUN . <(/tmp/arch-vars.sh) && rustup target add $RUST_TARGET
+
 WORKDIR /app
 COPY . /app
 
 RUN mkdir -p /out
 
-RUN \
-  --mount=type=cache,target=/usr/local/cargo/registry \
-  --mount=type=cache,target=/usr/local/cargo/git \
-  --mount=type=cache,target=/app/target \
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc \
-  CC=aarch64-linux-gnu-gcc \
-  cargo build --target $TARGET --release -p dockerloader && \
-  cp /app/target/$TARGET/release/dockerloader /out/app
+# Build binary
+RUN . <(/tmp/arch-vars.sh) && \
+    cargo build --target $RUST_TARGET --release -p dockerloader && \
+    cp /app/target/$RUST_TARGET/release/dockerloader /out/app
+
+# Prepare dynamic linker for extracted binaries
+RUN . <(/tmp/arch-vars.sh) && \
+    mkdir -p $(dirname $LINKER_DST) && \
+    cp $LINKER_SRC $LINKER_DST
 
 FROM scratch AS app
 COPY --from=build /out/app /dockerloader
-# Copy dynamic linker for extracted binaries
-COPY --from=build /lib/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
+# Copy architecture-specific dynamic linker for extracted binaries
+COPY --from=build /out/lib* /
 ENTRYPOINT ["/dockerloader"]
 ENV CONTAINER=1
 ENV RUST_LOG=info
