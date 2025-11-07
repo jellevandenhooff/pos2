@@ -1,3 +1,8 @@
+# Project Documentation
+
+- **TODO.md** - Track pending work items and known issues
+- **README.md** - High-level project overview and usage
+
 # Coding Rules
 
 ## Error Handling
