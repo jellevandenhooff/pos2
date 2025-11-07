@@ -118,6 +118,17 @@ impl DB {
         Ok(result)
     }
 
+    pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>> {
+        let tx = self.conn.begin().await?;
+        let result = Self::get_user_internal(
+            &tx,
+            Users::find().filter(users::Column::Email.eq(email)),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+
     pub async fn delete_session_token(&self, session_id: &str) -> Result<()> {
         Sessions::delete_by_id(session_id).exec(&self.conn).await?;
         Ok(())

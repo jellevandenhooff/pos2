@@ -9,15 +9,16 @@
 
 ## tunnel
 
-- [ ] make tunnel setup flow testable locally
-  - tunnel setup already extracted to reusable functions
-  - need to mock/skip github OAuth login for testing
-  - need to mock/skip ACME certificate acquisition for testing
-  - consider using test doubles or feature flags to enable local testing mode
+- [ ] add test mode for OAuth flow with integration test
+  - add test_mode flag to ServerConfig and ServerState
+  - bypass GitHub OAuth in test mode (simple login endpoint)
+  - skip certificate fetching in test mode
+  - create integration test similar to wasi3experiment that exercises full device flow
+  - test should start server, run client setup, authenticate, approve device code, complete setup
+- [ ] use docker container for cert/DNS testing
+  - modify OS-level root cert store in container for Pebble ACME CA
+  - configure DNS resolution at OS level in container
+  - cleaner than patching multiple rustls dependencies
 - [ ] extract authentication and user management from tunnel
   - tunnel will become just a feature of a broader platform
   - OAuth2 flow, user management, and domain assignment should be separate service
-- [ ] improve local testing infrastructure
-  - local DNS resolution setup needs better documentation
-  - local certificate trust configuration needs improvement
-  - streamline development workflow

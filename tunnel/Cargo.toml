@@ -59,3 +59,7 @@ tracing-subscriber = { workspace = true }
 urlencoding = { workspace = true }
 webpki = { workspace = true }
 x509-parser = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+reqwest = { workspace = true, features = ["json", "rustls-tls", "cookies"] }

@@ -193,6 +193,8 @@ pub struct ServerConfig {
     pub available_suffixes: Vec<String>,
     pub github_oauth2_client_id: String,
     pub github_oauth2_client_secret: String,
+    #[serde(default)]
+    pub test_mode: bool,
 }
 
 struct ImportantTaskSet {
@@ -238,6 +240,7 @@ pub async fn server_main(
         server_config.web_base_url.clone(),
         server_config.github_oauth2_client_id.clone(),
         server_config.github_oauth2_client_secret.clone(),
+        server_config.test_mode,
     )
     .await?;
 

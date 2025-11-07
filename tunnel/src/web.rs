@@ -6,7 +6,7 @@ use axum::{Extension, Form, Json};
 use axum_extra::headers;
 use cookie::Cookie;
 use generic_array::GenericArray;
-use http::Method;
+use http::{Method, StatusCode};
 use oauth2::{StandardDeviceAuthorizationResponse, TokenResponse};
 use rand::{Rng, TryRngCore};
 use serde::{Deserialize, Serialize};
@@ -188,6 +188,7 @@ struct ServerState {
     oauth2: Oauth2Client,
     available_suffixes: Vec<String>,
     web_base_url: String,
+    test_mode: bool,
 }
 
 #[derive(Clone)]
@@ -862,6 +863,56 @@ async fn login_callback_handler(
     axum::response::Redirect::to(&github_oauth2_state.redirect_to).into_response()
 }
 
+#[derive(Deserialize)]
+struct LoginTestRequest {
+    email: String,
+}
+
+async fn login_test_handler(
+    cookies: Cookies,
+    Extension(state): Extension<ServerState>,
+    axum::Json(req): axum::Json<LoginTestRequest>,
+) -> Response {
+    if !state.test_mode {
+        return (StatusCode::FORBIDDEN, "test mode not enabled").into_response();
+    }
+
+    let maybe_user = state
+        .storage
+        .db
+        .get_user_by_email(&req.email)
+        .await
+        .expect("lookup user");
+
+    let user = match maybe_user {
+        Some(user) => user,
+        None => {
+            state
+                .storage
+                .db
+                .create_user(&req.email, None, vec![])
+                .await
+                .expect("got user")
+        }
+    };
+
+    let session_token = state
+        .storage
+        .db
+        .create_session_token(&user.id)
+        .await
+        .expect("creating token");
+
+    set_cookie(
+        &cookies,
+        "session_id".into(),
+        session_token.id,
+        Some(cookie::time::Duration::hours(24)),
+    );
+
+    Json(serde_json::json!({"success": true})).into_response()
+}
+
 fn make_github_oauth2_client(
     web_base_url: String,
     client_id: String,
@@ -890,6 +941,7 @@ pub async fn make_router(
     web_base_url: String,
     github_oauth2_client_id: String,
     github_oauth2_client_secret: String,
+    test_mode: bool,
 ) -> Result<axum::Router> {
     let app = axum::Router::new()
         .route("/", get(index_handler))
@@ -906,6 +958,7 @@ pub async fn make_router(
         .route("/logout", post(logout_handler))
         .route("/login/github", get(login_github_handler))
         .route("/login/callback", get(login_callback_handler))
+        .route("/login/test", post(login_test_handler))
         .route("/api/test", get(api_test_handler))
         .route("/api/domain/register", get(api_register_domain_handler))
         .layer(axum::middleware::from_fn(auth_middleware))
@@ -920,6 +973,7 @@ pub async fn make_router(
             )?,
             available_suffixes: available_suffixes,
             web_base_url: web_base_url,
+            test_mode: test_mode,
         }))
         .layer(CookieManagerLayer::new());
 
