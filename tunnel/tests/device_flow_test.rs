@@ -1,4 +1,4 @@
-use expectrl::session::Session;
+use expectrl::{session::Session, Regex as ExpectRegex};
 use reqwest::Client;
 use serde_json::json;
 use std::path::PathBuf;
@@ -104,37 +104,31 @@ async fn test_device_flow_end_to_end() {
     println!("step 2: select tunnel server");
     let result = session
         .expect("what tunnel server")
+        .await
         .expect("should prompt for tunnel server");
     log_session_output("tunnel-select", &result.as_bytes());
-    session.send_line("").expect("select first option");
+    session.send_line("").await.expect("select first option");
 
     println!("step 3: expect device code prompt");
     let result = session
         .expect("enter the code:")
+        .await
         .expect("should show device code prompt");
     log_session_output("device-code", &result.as_bytes());
 
-    // wait a bit for the code to be printed
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // expect the user code pattern directly (format: XXXX-XXXX)
+    let code_pattern = ExpectRegex(r"[A-Z0-9]{4}-[A-Z0-9]{4}");
+    let result = session
+        .expect(code_pattern)
+        .await
+        .expect("should find user code");
+    log_session_output("user-code", &result.as_bytes());
 
-    // read any remaining output
-    let mut buffer = vec![0u8; 1024];
-    let mut additional_output = Vec::new();
-    if let Ok(available) = session.try_read(&mut buffer) {
-        if available > 0 {
-            additional_output = buffer[..available].to_vec();
-            log_session_output("device-code-cont", &additional_output);
-        }
-    }
-
-    // extract the user code using regex (format: XXXX-XXXX)
-    let full_output = result.as_bytes();
-    let combined: Vec<u8> = [full_output, &additional_output].concat();
-    let combined_str = String::from_utf8_lossy(&combined);
+    let user_code_str = String::from_utf8_lossy(&result.as_bytes());
     let user_code = regex::Regex::new(r"[A-Z0-9]{4}-[A-Z0-9]{4}")
         .unwrap()
-        .find(&combined_str)
-        .expect("should find user code in output")
+        .find(&user_code_str)
+        .expect("should extract user code")
         .as_str();
 
     println!("extracted user_code: {}", user_code);
@@ -192,28 +186,37 @@ async fn test_device_flow_end_to_end() {
     println!("step 6: select domain");
     let result = session
         .expect("what domain")
+        .await
         .expect("should prompt for domain");
     log_session_output("domain-select", &result.as_bytes());
 
-    session.send_line("").expect("select first domain option (new domain)");
+    session
+        .send_line("")
+        .await
+        .expect("select first domain option (new domain)");
 
     // after selecting "new domain", it prompts for the prefix before the suffix
     println!("step 6b: wait for suffix name prompt");
     let result = session
         .expect("please pick a name before the suffix")
+        .await
         .expect("should prompt for domain prefix");
     log_session_output("domain-prefix-prompt", &result.as_bytes());
 
-    session.send_line("test-client").expect("send domain prefix");
+    session
+        .send_line("test-client")
+        .await
+        .expect("send domain prefix");
 
     // it will show the full domain and ask for confirmation
     println!("step 6c: confirm domain");
     let result = session
         .expect("continue with domain")
+        .await
         .expect("should prompt for confirmation");
     log_session_output("domain-confirm", &result.as_bytes());
 
-    session.send_line("yes").expect("confirm domain");
+    session.send_line("yes").await.expect("confirm domain");
 
     println!("step 7: wait a moment for state.json to be written");
     tokio::time::sleep(Duration::from_millis(2000)).await;
