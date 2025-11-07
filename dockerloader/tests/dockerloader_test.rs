@@ -45,7 +45,7 @@ impl Docker {
         let mut args = vec![
             "build".into(),
             "-t".into(),
-            "localhost:5050/dockerloaded:testing".into(),
+            "localhost:5050/dockerloader-testapp:testing".into(),
             "-f".into(),
             "Dockerfile.dockerloaded".into(),
         ];
@@ -57,7 +57,7 @@ impl Docker {
 
         args.push(".".into());
         self.run(args)?;
-        self.run(vec!["push".into(), "localhost:5050/dockerloaded:testing".into()])?;
+        self.run(vec!["push".into(), "localhost:5050/dockerloader-testapp:testing".into()])?;
         Ok(())
     }
 

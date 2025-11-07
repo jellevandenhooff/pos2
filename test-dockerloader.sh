@@ -5,8 +5,8 @@ set -ex
 docker build -t dockerloader:testing -f Dockerfile.dockerloader .
 
 echo "Building and pushing version 1"
-docker build -t localhost:5050/dockerloaded:testing -f Dockerfile.dockerloaded --build-arg VERSION=1.0 .
-docker push localhost:5050/dockerloaded:testing
+docker build -t localhost:5050/dockerloader-testapp:testing -f Dockerfile.dockerloaded --build-arg VERSION=1.0 .
+docker push localhost:5050/dockerloader-testapp:testing
 
 rm -rf $(pwd)/data/dockerloader
 sleep 1

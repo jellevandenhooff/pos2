@@ -7,7 +7,7 @@ A self-updating container loader for Rust applications. dockerloader enables you
 ### Components
 
 - dockerloader (supervisor): main process that manages the application lifecycle
-- dockerloaded (application): example application that uses dockerloader for self-updates
+- dockerloader-testapp (application): example application that uses dockerloader for self-updates
 
 ### How it works
 

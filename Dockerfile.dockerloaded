@@ -17,12 +17,12 @@ RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/app/target \
-  cargo build --release -p dockerloader-bundler -p dockerloaded && \
+  cargo build --release -p dockerloader-bundler -p dockerloader-testapp && \
   cp /app/target/release/dockerloader-bundler /tmp/dockerloader-bundler && \
-  cp /app/target/release/dockerloaded /tmp/dockerloaded
+  cp /app/target/release/dockerloader-testapp /tmp/dockerloader-testapp
 
 # Use dockerloader-bundler to gather only necessary libraries
-RUN /tmp/dockerloader-bundler /tmp/dockerloaded /out
+RUN /tmp/dockerloader-bundler /tmp/dockerloader-testapp /out
 
 # Create .env file with build args
 RUN printf "VERSION=%s\nFAIL_INIT=%s\nTIMEOUT_INIT=%s\nLONG_RUNNING=%s\nCONTAINER=1\nRUST_LOG=info\n" \

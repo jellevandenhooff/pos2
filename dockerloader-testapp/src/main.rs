@@ -1,6 +1,5 @@
 use anyhow::Result;
 
-// TODO: extract into wasi3experiment
 // TODO: make the install script somehow wait for the initial download to finish (for exec cli -- maybe dockerloader itself can be the entrypoint and wait?) -- and what happens with the trial balloon?
 // TODO: only copy (some) of the files into the loaded docker container?
 

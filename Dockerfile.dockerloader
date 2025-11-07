@@ -61,5 +61,5 @@ COPY --from=build /out/lib64 /lib64
 ENTRYPOINT ["/dockerloader"]
 ENV CONTAINER=1
 ENV RUST_LOG=info
-ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloaded:testing
+ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloader-testapp:testing
 CMD []
