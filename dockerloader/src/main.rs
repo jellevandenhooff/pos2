@@ -4,6 +4,12 @@ use anyhow::{Context, Result};
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
+    // Check if invoked as CLI (via symlink at /bin/cli)
+    let argv0 = std::env::args().next().unwrap_or_default();
+    if argv0.ends_with("/cli") || argv0 == "cli" {
+        return run_cli_mode().await;
+    }
+
     if !tokio::fs::try_exists("/data").await? {
         tracing::error!("missing /data directory; make sure it is mounted as a volume");
         return Ok(());
@@ -115,4 +121,41 @@ async fn main() -> Result<()> {
 
         std::process::exit(exit_code);
     }
+}
+
+async fn run_cli_mode() -> Result<()> {
+    // Wait for entrypoint to be downloaded if it doesn't exist yet
+    if !tokio::fs::try_exists(dockerloader::ENTRYPOINT_PATH).await? {
+        tracing::info!("waiting for initial download of entrypoint...");
+
+        let wait_timeout = std::time::Duration::from_secs(60);
+        let poll_interval = std::time::Duration::from_millis(500);
+        let start = std::time::Instant::now();
+
+        while start.elapsed() < wait_timeout {
+            tokio::time::sleep(poll_interval).await;
+            if tokio::fs::try_exists(dockerloader::ENTRYPOINT_PATH).await? {
+                break;
+            }
+        }
+
+        if !tokio::fs::try_exists(dockerloader::ENTRYPOINT_PATH).await? {
+            anyhow::bail!("entrypoint not found after waiting; is the supervisor running?");
+        }
+    }
+
+    // TODO: handle race condition where entrypoint symlink changes during update
+
+    // Prepend "cli" command to indicate CLI mode, then add all original args
+    let mut args: Vec<std::ffi::CString> = vec![
+        std::ffi::CString::new(dockerloader::ENTRYPOINT_PATH).unwrap(),
+        std::ffi::CString::new("cli").unwrap(),
+    ];
+    args.extend(std::env::args().skip(1).map(|s| std::ffi::CString::new(s).unwrap()));
+
+    // Use nix::unistd::execv to replace this process with the entrypoint
+    let path = std::ffi::CString::new(dockerloader::ENTRYPOINT_PATH)?;
+    let err = nix::unistd::execv(&path, &args)?;
+
+    anyhow::bail!("failed to exec entrypoint: {:?}", err);
 }

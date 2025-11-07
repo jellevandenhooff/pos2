@@ -62,8 +62,8 @@ COPY --from=build /out/lib /lib
 COPY --from=build /out/lib64 /lib64
 COPY --from=busybox /bin/busybox /bin/busybox
 RUN ["/bin/busybox", "--install", "-s", "/bin"]
-ENTRYPOINT ["/dockerloader"]
+RUN ["/bin/ln", "-s", "/dockerloader", "/bin/cli"]
 ENV CONTAINER=1
 ENV RUST_LOG=info
 ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloader-testapp:testing
-CMD []
+CMD ["/dockerloader"]

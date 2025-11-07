@@ -24,6 +24,12 @@ async fn main() -> Result<()> {
     let version = std::env::var("VERSION").unwrap_or_else(|_| "unknown".to_string());
     println!("Hello, world! Version: {}", version);
 
+    // Skip mark_ready if running in CLI mode
+    if dockerloader::is_cli_mode() {
+        tracing::info!("CLI mode: skipping mark_ready and background tasks");
+        return Ok(());
+    }
+
     // Mark ready - commits trial, does cleanup, checks for updates
     dockerloader::mark_ready().await?;
 

@@ -43,6 +43,7 @@
 3. **No implementation details in READMEs** - Don't document internal function calls or detailed step-by-step execution flows
 4. **Minimal markup in READMEs** - Avoid excessive markdown formatting like bold (**text**). Plain text is preferred
 5. **Use sentence case for headers** - Headers should start with a capital letter but not capitalize every word. "Background update loop" not "Background Update Loop"
+6. **Document interesting findings** - When working on tasks and learning relevant/interesting things about the codebase or architecture, document them in appropriate places (READMEs, code comments). Check before adding lots of text
 
 ## Testing
 

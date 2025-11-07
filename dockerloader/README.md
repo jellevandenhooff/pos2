@@ -87,6 +87,26 @@ let _update_handle = dockerloader::start_update_loop().await?;
 Configuration:
 - `DOCKERLOADER_UPDATE_INTERVAL_SECS` - how often to check for updates (default: 300 = 5 minutes)
 
+## CLI access
+
+You can execute commands in the running application using `docker exec`:
+
+```bash
+docker exec <container-name> cli [args]
+```
+
+The supervisor will forward the command to the current stable entrypoint with `cli` as the first argument. Your application should check for this and handle CLI invocations appropriately (typically by skipping background tasks and update loops).
+
+Example:
+```rust
+if dockerloader::is_cli_mode() {
+    // Handle CLI command and exit
+    return Ok(());
+}
+```
+
+If the entrypoint hasn't been downloaded yet, the CLI command will wait for the initial download to complete.
+
 ## Testing
 
 Run the integration tests:
@@ -102,5 +122,6 @@ The tests build test images, push them to a local registry, and verify:
 - Timeout handling
 - Background update loop detection
 - Storage cleanup
+- CLI passthrough functionality
 
 Test data location: Integration tests use `dockerloader/data/` for their data volume to avoid conflicts with application data in workspace `data/`.

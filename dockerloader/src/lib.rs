@@ -4,6 +4,11 @@ pub const ENTRYPOINT_ATTEMPTING_PATH: &str = "/data/dockerloader/entrypoint-atte
 pub const UPDATE_ATTEMPT_FILE: &str = "/data/dockerloader/update-attempt";
 pub const RESTART_EXIT_CODE: i32 = 42;
 
+/// Check if running in CLI mode (indicated by "cli" as first argument)
+pub fn is_cli_mode() -> bool {
+    std::env::args().nth(1).as_deref() == Some("cli")
+}
+
 use anyhow::{Result, bail, Context};
 use flate2::read::GzDecoder;
 use futures::StreamExt;

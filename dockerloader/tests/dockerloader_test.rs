@@ -99,6 +99,12 @@ impl Docker {
         let _ = self.run(vec!["rm".into(), container_id.into()]);
         Ok(())
     }
+
+    fn exec(&self, container_id: &str, command: Vec<String>) -> Result<String> {
+        let mut args = vec!["exec".into(), container_id.into()];
+        args.extend(command);
+        self.run(args)
+    }
 }
 
 fn read_symlink_target(data_dir: &str) -> Result<String> {
@@ -351,6 +357,11 @@ fn test_background_update_loop() -> Result<()> {
     let v2_sha = extract_sha(&v2_target)?;
     println!("V2 now running with SHA: {}", v2_sha);
     assert_ne!(v1_sha, v2_sha, "SHA should have changed from v1 to v2");
+
+    // Test CLI passthrough
+    println!("Testing CLI passthrough with docker exec");
+    let cli_output = docker.exec(&container_id, vec!["cli".into()])?;
+    assert!(cli_output.contains("Version: 2.0"));
 
     // Cleanup
     println!("Stopping container");
