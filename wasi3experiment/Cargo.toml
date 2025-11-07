@@ -32,7 +32,7 @@ tunnel = { workspace = true } # is there a better way to include a workspace thi
 webauthn-rs = { workspace = true }
 
 [dev-dependencies]
-expectrl = "0.7"
+expectrl = { version = "0.7", features = ["async"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

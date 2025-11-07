@@ -21,8 +21,8 @@ struct LocalConfig {
     address: String,
 }
 
-#[test]
-fn test_cli_setup_prompts_and_creates_config() {
+#[tokio::test]
+async fn test_cli_setup_prompts_and_creates_config() {
     // Create a temp directory for the config
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
     let config_path = temp_dir.path().join("config.json");
@@ -42,7 +42,7 @@ fn test_cli_setup_prompts_and_creates_config() {
     session.set_expect_timeout(Some(Duration::from_secs(5)));
 
     // Wait for and check the first prompt
-    let result = session.expect("do you want to use tunnel mode?");
+    let result = session.expect("do you want to use tunnel mode?").await;
     assert!(
         result.is_ok(),
         "failed to find tunnel mode prompt: {:?}",
@@ -50,10 +50,12 @@ fn test_cli_setup_prompts_and_creates_config() {
     );
 
     // Answer "no" to tunnel mode
-    session.send_line("n").expect("failed to send answer");
+    session.send_line("n").await.expect("failed to send answer");
 
     // Wait for and check the second prompt
-    let result = session.expect("what address should the local listener use?");
+    let result = session
+        .expect("what address should the local listener use?")
+        .await;
     assert!(
         result.is_ok(),
         "failed to find address prompt: {:?}",
@@ -61,10 +63,10 @@ fn test_cli_setup_prompts_and_creates_config() {
     );
 
     // Accept the default by pressing enter
-    session.send_line("").expect("failed to send enter");
+    session.send_line("").await.expect("failed to send enter");
 
     // Wait for completion message
-    let result = session.expect("setup complete!");
+    let result = session.expect("setup complete!").await;
     assert!(
         result.is_ok(),
         "failed to find completion message: {:?}",
@@ -72,7 +74,7 @@ fn test_cli_setup_prompts_and_creates_config() {
     );
 
     // Give it a moment to finish writing the file
-    std::thread::sleep(Duration::from_millis(500));
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Verify config file was created
     assert!(
