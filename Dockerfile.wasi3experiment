@@ -1,13 +1,28 @@
-FROM rust:1.90-trixie AS build
+FROM rust:1.90-trixie AS chef
+RUN apt-get update && apt-get install -y clang libclang-dev patchelf && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-chef
+WORKDIR /app
 
-RUN apt-get update && apt-get install -y patchelf
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS build
 
 WORKDIR /app
-COPY . /app
+
+# Build dependencies (cached layer)
+COPY --from=planner /app/recipe.json recipe.json
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=cache,target=/usr/local/cargo/git \
+  cargo chef cook --release --recipe-path recipe.json
+
+# Copy source and build
+COPY . .
 
 RUN mkdir -p /out
 
-# Build wasi3experiment and dockerloader-bundler
 RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
@@ -16,7 +31,6 @@ RUN \
   cp /app/target/release/wasi3experiment /tmp/wasi3experiment && \
   cp /app/target/release/dockerloader-bundler /tmp/dockerloader-bundler
 
-# Use dockerloader-bundler to gather only necessary libraries (with symlinks and rpath)
 RUN /tmp/dockerloader-bundler /tmp/wasi3experiment /out
 
 # Create .env file with runtime config

@@ -49,7 +49,7 @@ jobs:
           context: .
           cache-from: type=gha,scope=supervisor-${{ matrix.architecture }}
           cache-to: type=gha,mode=max,scope=supervisor-${{ matrix.architecture }}
-          file: Dockerfile.dockerloader.ci
+          file: Dockerfile.dockerloader
           build-args: |
             TARGETARCH=${{ matrix.architecture }}
           platforms: linux/${{ matrix.architecture }}
@@ -105,7 +105,7 @@ jobs:
           context: .
           cache-from: type=gha,scope=runtime-${{ matrix.architecture }}
           cache-to: type=gha,mode=max,scope=runtime-${{ matrix.architecture }}
-          file: Dockerfile.wasi3experiment.ci
+          file: Dockerfile.wasi3experiment
           build-args: |
             TARGETARCH=${{ matrix.architecture }}
           platforms: linux/${{ matrix.architecture }}
