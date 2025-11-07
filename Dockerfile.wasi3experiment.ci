@@ -26,7 +26,7 @@ RUN case "$TARGETARCH" in \
       arm64) TARGET="aarch64-unknown-linux-musl" ;; \
       amd64) TARGET="x86_64-unknown-linux-musl" ;; \
     esac && \
-    cargo chef cook --target $TARGET --release --recipe-path recipe.json -p dockerloader
+    cargo chef cook --target $TARGET --release --recipe-path recipe.json
 
 # Copy source and build
 COPY . .
@@ -37,22 +37,28 @@ RUN case "$TARGETARCH" in \
     arm64) TARGET="aarch64-unknown-linux-musl" ;; \
     amd64) TARGET="x86_64-unknown-linux-musl" ;; \
   esac && \
-  cargo build --target $TARGET --release -p dockerloader && \
-  cp /app/target/$TARGET/release/dockerloader /out/app
+  cargo build --target $TARGET --release -p dockerloader-bundler && \
+  /app/target/$TARGET/release/dockerloader-bundler \
+    --package wasi3experiment \
+    --entrypoint /app/target/$TARGET/release/wasi3experiment \
+    --output /out/app
 
-# dockerloader is statically linked, but extracted binaries may need a dynamic linker
+# Copy runtime dependencies
 RUN mkdir -p /out/lib /out/lib64 && \
   case "$TARGETARCH" in \
     arm64) cp /lib/ld-linux-aarch64.so.1 /out/lib/ ;; \
     amd64) cp /lib64/ld-linux-x86-64.so.2 /out/lib64/ || true ;; \
   esac
 
+RUN mkdir -p /out/etc/ssl/certs && \
+  cp /etc/ssl/certs/ca-certificates.crt /out/etc/ssl/certs/
+
 FROM scratch AS app
-COPY --from=build /out/app /dockerloader
+COPY --from=build /out/app /dockerloaded
 COPY --from=build /out/lib /lib
 COPY --from=build /out/lib64 /lib64
-ENTRYPOINT ["/dockerloader"]
+COPY --from=build /out/etc/ssl/certs /etc/ssl/certs
+ENTRYPOINT ["/dockerloaded"]
 ENV CONTAINER=1
 ENV RUST_LOG=info
-ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloaded:testing
 CMD []
