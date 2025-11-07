@@ -1,5 +1,4 @@
 FROM rust:1.90-trixie AS chef
-RUN apt-get update && apt-get install -y musl-tools && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef
 WORKDIR /app
 
@@ -9,56 +8,24 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS build
 
-ARG TARGETARCH
-
-RUN case "$TARGETARCH" in \
-    arm64) TARGET="aarch64-unknown-linux-musl" ;; \
-    amd64) TARGET="x86_64-unknown-linux-musl" ;; \
-    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
-  esac && \
-  rustup target add $TARGET
-
 WORKDIR /app
 
 # Build dependencies (cached layer)
 COPY --from=planner /app/recipe.json recipe.json
-RUN case "$TARGETARCH" in \
-      arm64) TARGET="aarch64-unknown-linux-musl" ;; \
-      amd64) TARGET="x86_64-unknown-linux-musl" ;; \
-    esac && \
-    cargo chef cook --target $TARGET --release --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
 # Copy source and build
 COPY . .
 
 RUN mkdir -p /out
 
-RUN case "$TARGETARCH" in \
-    arm64) TARGET="aarch64-unknown-linux-musl" ;; \
-    amd64) TARGET="x86_64-unknown-linux-musl" ;; \
-  esac && \
-  cargo build --target $TARGET --release -p dockerloader-bundler && \
-  /app/target/$TARGET/release/dockerloader-bundler \
-    --package wasi3experiment \
-    --entrypoint /app/target/$TARGET/release/wasi3experiment \
-    --output /out/app
+RUN cargo build --release -p wasi3experiment -p dockerloader-bundler && \
+  cp /app/target/release/wasi3experiment /tmp/wasi3experiment && \
+  cp /app/target/release/dockerloader-bundler /tmp/dockerloader-bundler
 
-# Copy runtime dependencies
-RUN mkdir -p /out/lib /out/lib64 && \
-  case "$TARGETARCH" in \
-    arm64) cp /lib/ld-linux-aarch64.so.1 /out/lib/ ;; \
-    amd64) cp /lib64/ld-linux-x86-64.so.2 /out/lib64/ || true ;; \
-  esac
-
-RUN mkdir -p /out/etc/ssl/certs && \
-  cp /etc/ssl/certs/ca-certificates.crt /out/etc/ssl/certs/
+RUN /tmp/dockerloader-bundler /tmp/wasi3experiment /out
 
 FROM scratch AS app
-COPY --from=build /out/app /dockerloaded
-COPY --from=build /out/lib /lib
-COPY --from=build /out/lib64 /lib64
-COPY --from=build /out/etc/ssl/certs /etc/ssl/certs
-ENTRYPOINT ["/dockerloaded"]
-ENV CONTAINER=1
-ENV RUST_LOG=info
+COPY --from=build /out /
+ENTRYPOINT ["/entrypoint"]
 CMD []
