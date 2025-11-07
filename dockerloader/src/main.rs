@@ -45,9 +45,16 @@ async fn main() -> Result<()> {
             dockerloader::ENTRYPOINT_PATH
         };
 
+        let symlink_target = tokio::fs::read_link(entrypoint_to_spawn)
+            .await
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "unknown".to_string());
+
         tracing::info!(
-            "spawning entrypoint {} as subprocess (trial mode: {})",
+            "spawning entrypoint {} -> {} as subprocess (trial mode: {})",
             entrypoint_to_spawn,
+            symlink_target,
             in_trial_mode
         );
 

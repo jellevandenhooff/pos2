@@ -381,6 +381,16 @@ pub async fn init_dockerloaded() -> Result<()> {
 
     apply_image_env_vars(&current_sha).await?;
 
+    // copy bundled CA certificates to root filesystem
+    let bundled_ca_certs = format!("/data/dockerloader/storage/v1/extracted/{}/etc/ssl/certs/ca-certificates.crt", current_sha);
+    let root_ca_certs = "/etc/ssl/certs/ca-certificates.crt";
+
+    if let Ok(true) = tokio::fs::try_exists(&bundled_ca_certs).await {
+        tokio::fs::create_dir_all("/etc/ssl/certs").await?;
+        tokio::fs::copy(&bundled_ca_certs, root_ca_certs).await?;
+        tracing::info!("copied CA certificates to {}", root_ca_certs);
+    }
+
     let in_trial_mode = std::env::var("DOCKERLOADER_TRIAL").is_ok();
 
     tracing::info!("dockerloaded started (trial mode: {})", in_trial_mode);

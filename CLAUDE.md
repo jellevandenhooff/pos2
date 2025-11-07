@@ -24,9 +24,16 @@
 
 5. **Log messages start with lowercase** - Keep log messages lowercase, similar to error messages
 
+## Code Style
+
+1. **Avoid deep indentation** - Extract nested logic into separate functions to keep code readable
+   - Good: Extract helpers and use early returns
+   - Bad: 5+ levels of nested if/for/match blocks
+
 ## Git Commits
 
 1. **Use 1-line commit messages** - Keep commit messages concise and on a single line
+2. **No emojis in commit messages** - Don't use emojis or decorative unicode characters in commit messages
 
 ## Documentation
 

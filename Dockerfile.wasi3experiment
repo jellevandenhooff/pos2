@@ -1,22 +1,28 @@
 FROM rust:1.90-trixie AS build
 
+RUN apt-get update && apt-get install -y patchelf
+
 WORKDIR /app
 COPY . /app
 
 RUN mkdir -p /out
 
+# Build wasi3experiment and dockerloader-bundler
 RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/app/target \
-  cargo build --release -p wasi3experiment && \
-  cp /app/target/release/wasi3experiment /out/app
+  cargo build --release -p wasi3experiment -p dockerloader-bundler && \
+  cp /app/target/release/wasi3experiment /tmp/wasi3experiment && \
+  cp /app/target/release/dockerloader-bundler /tmp/dockerloader-bundler
 
-FROM debian:trixie-slim AS app
-RUN apt-get update && apt-get install -y ca-certificates
-# TODO: add helper binary here for dockerloader plan
-COPY --from=build /out/app /app
-ENTRYPOINT ["/app"]
-ENV CONTAINER=1
-ENV RUST_LOG=info
-CMD ["/data"]
+# Use dockerloader-bundler to gather only necessary libraries (with symlinks and rpath)
+RUN /tmp/dockerloader-bundler /tmp/wasi3experiment /out
+
+# Create .env file with runtime config
+RUN printf "CONTAINER=1\nRUST_LOG=info\n" > /out/.env
+
+FROM scratch AS app
+COPY --from=build /out /
+ENTRYPOINT ["/entrypoint"]
+CMD []

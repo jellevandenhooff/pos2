@@ -332,7 +332,6 @@ async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>, dir: &str) 
 
 #[derive(serde::Deserialize, Debug)]
 struct Wasi3ExperimentConfig {
-    selfupdater: Option<SelfupdaterConfig>,
     listener: Option<ListenerConfig>,
 }
 
@@ -344,15 +343,6 @@ struct ListenerConfig {
 #[derive(serde::Deserialize, Debug)]
 struct LocalConfig {
     address: String,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct SelfupdaterConfig {
-    registry: String,
-    tag: String,
-    // delete_dangling_created_containers_after: chrono::Duration::seconds(30),
-    // delete_unused_containers_after: chrono::Duration::seconds(30),
-    // delete_unused_images_pulled_before: chrono::Duration::seconds(30),
 }
 
 async fn load_config_or_spin() -> Result<Wasi3ExperimentConfig> {
@@ -384,15 +374,30 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("help");
 
-    let cancellation = selfupdater::cancellation_on_signal()?;
+    let cancellation = CancellationToken::new();
 
     {
         let cancellation = cancellation.clone();
         tokio::spawn(async move {
-            cancellation.cancelled().await;
+            tokio::signal::ctrl_c().await.ok();
+            cancellation.cancel();
             // TODO: maybe sometimes gracefully exit instead?
             std::process::exit(0);
         });
+    }
+
+    let in_container = if let Ok(s) = std::env::var("CONTAINER")
+        && s != ""
+    {
+        true
+    } else {
+        false
+    };
+
+    let use_dockerloader = std::env::var("DOCKERLOADER_TARGET").is_ok();
+
+    if in_container && use_dockerloader {
+        dockerloader::init_dockerloaded().await?;
     }
 
     let args: Vec<String> = std::env::args().collect();
@@ -403,48 +408,11 @@ async fn main() -> Result<()> {
 
     let config = load_config_or_spin().await?;
 
-    println!("Hello, world! tiny change. config: {:?}", config);
+    println!("Hello, world! config: {:?}", config);
 
-    // TODO: don't poll repo too often?? use a registry server instead??
-    // TODO: maybe config/state in db??
-
-    let in_container = if let Ok(s) = std::env::var("CONTAINER")
-        && s != ""
-    {
-        true
-    } else {
-        false
-    };
-
-    if in_container {
-        // TODO: check if /data exists (volume mount done?)
-
-        tracing::info!(
-            "running inside docker (based on CONTAINER env var); checking if we have a docker socket for self updater"
-        );
-        let has_docker = selfupdater::check_docker_connect().await?;
-
-        if has_docker && let Some(config) = config.selfupdater {
-            tracing::info!("have docker socket; running selfupdater");
-            // problems I just had:
-            // - name is not right
-            // - rm (and no restart? that one is tricky)
-            // - no shared selfupdater mount
-            // TODO: get from config?
-            selfupdater::run(
-                selfupdater::UpdaterConfiguration {
-                    repository: config.registry, // TODO: defaults?
-                    tag: config.tag,
-                    delete_dangling_created_containers_after: chrono::Duration::seconds(30),
-                    delete_unused_containers_after: chrono::Duration::seconds(30),
-                    delete_unused_images_pulled_before: chrono::Duration::seconds(30),
-                },
-                cancellation.clone(),
-            )
-            .await?;
-        } else {
-            tracing::info!("no docker socket; not running selfupdater");
-        }
+    if in_container && use_dockerloader {
+        dockerloader::mark_ready().await?;
+        let _update_handle = dockerloader::start_update_loop().await?;
     }
 
     let instances = HashMap::new();
