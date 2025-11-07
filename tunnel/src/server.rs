@@ -285,64 +285,67 @@ pub async fn server_main(
     // TODO: put any limits on what records this client can write?
     let dns_client: Arc<Box<dyn DnsClient>> = Arc::new(Box::new(dns_server_api.clone()));
 
-    // TODO: public IP??
-    dns_client
-        .add_a_record(&format!("{hostname}."), &server_config.public_ip.parse()?)
-        .await?;
-
-    // TODO: put this maintainer in its own directory??
-    let mut maintainer =
-        crate::cert::CertMaintainer::initialize(env.clone(), vec![hostname.into()], dns_client)
+    // in test mode, skip certificate and QUIC setup to avoid external dependencies
+    if !server_config.test_mode {
+        // TODO: public IP??
+        dns_client
+            .add_a_record(&format!("{hostname}."), &server_config.public_ip.parse()?)
             .await?;
 
-    let config = crate::common::make_rustls_server_config(maintainer.cert_resolver())?;
+        // TODO: put this maintainer in its own directory??
+        let mut maintainer =
+            crate::cert::CertMaintainer::initialize(env.clone(), vec![hostname.into()], dns_client)
+                .await?;
 
-    tokio::spawn(async move {
-        // tasks.spawn("maintain certs", async move {
-        maintainer.maintain_certs().await
-    });
+        let config = crate::common::make_rustls_server_config(maintainer.cert_resolver())?;
 
-    let server = Arc::new(TunnelServer {
-        env: env,
-        rustls_server_config: config.clone(),
-        conns: make_connections_map(),
-        db: db,
-    });
-
-    {
-        let stop = tasks.stop.clone();
-        let server = server.clone();
-        let listen_addr = server_config.quinn_listen_addr.parse()?;
         tokio::spawn(async move {
-            // tasks.spawn("quinn server", async move {
-            server.run(listen_addr, stop).await
+            // tasks.spawn("maintain certs", async move {
+            maintainer.maintain_certs().await
+        });
+
+        let server = Arc::new(TunnelServer {
+            env: env,
+            rustls_server_config: config.clone(),
+            conns: make_connections_map(),
+            db: db,
+        });
+
+        {
+            let stop = tasks.stop.clone();
+            let server = server.clone();
+            let listen_addr = server_config.quinn_listen_addr.parse()?;
+            tokio::spawn(async move {
+                // tasks.spawn("quinn server", async move {
+                server.run(listen_addr, stop).await
+            });
+        }
+
+        let mut sni_router = crate::sni_router::SniRouter {
+            handlers: HashMap::new(),
+            default: None,
+        };
+
+        let dns_router = crate::dnsserver::make_dns_router(dns_server_api.clone());
+
+        let merged_router = dns_router.merge(web_router);
+
+        let handler = crate::conn_handler::ConnHandlerParsedHelloConnHandler::new(
+            crate::conn_handler::axum_router_to_conn_handler(merged_router),
+            config.clone(),
+        );
+        sni_router
+            .handlers
+            .insert(hostname.into(), Box::new(handler));
+        sni_router.default = Some(Box::new(server.clone()));
+
+        // on :80, run a 443 redirect? (for known domains?)
+        let tls_listener = tokio::net::TcpListener::bind(server_config.https_listen_addr).await?;
+        tokio::spawn(async move {
+            // tasks.spawn("tls listener", async move {
+            crate::sni_router::handle_listener(tls_listener, Arc::new(sni_router)).await
         });
     }
-
-    let mut sni_router = crate::sni_router::SniRouter {
-        handlers: HashMap::new(),
-        default: None,
-    };
-
-    let dns_router = crate::dnsserver::make_dns_router(dns_server_api.clone());
-
-    let merged_router = dns_router.merge(web_router);
-
-    let handler = crate::conn_handler::ConnHandlerParsedHelloConnHandler::new(
-        crate::conn_handler::axum_router_to_conn_handler(merged_router),
-        config.clone(),
-    );
-    sni_router
-        .handlers
-        .insert(hostname.into(), Box::new(handler));
-    sni_router.default = Some(Box::new(server.clone()));
-
-    // on :80, run a 443 redirect? (for known domains?)
-    let tls_listener = tokio::net::TcpListener::bind(server_config.https_listen_addr).await?;
-    tokio::spawn(async move {
-        // tasks.spawn("tls listener", async move {
-        crate::sni_router::handle_listener(tls_listener, Arc::new(sni_router)).await
-    });
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {

@@ -63,3 +63,6 @@ x509-parser = { workspace = true }
 [dev-dependencies]
 tempfile = "3"
 reqwest = { workspace = true, features = ["json", "rustls-tls", "cookies"] }
+expectrl = "0.7"
+portpicker = "0.1"
+regex = "1"
