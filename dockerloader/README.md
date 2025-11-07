@@ -99,9 +99,16 @@ The supervisor will forward the command to the current stable entrypoint with `c
 
 Example:
 ```rust
-if dockerloader::is_cli_mode() {
-    // Handle CLI command and exit
-    return Ok(());
+if let Some(args) = dockerloader::is_cli_mode() {
+    match args.get(0).map(|s| s.as_str()) {
+        Some("setup") => {
+            // Handle setup command
+            return Ok(());
+        }
+        _ => {
+            bail!("unknown command");
+        }
+    }
 }
 ```
 

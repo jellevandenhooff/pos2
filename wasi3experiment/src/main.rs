@@ -421,10 +421,21 @@ async fn main() -> Result<()> {
         dockerloader::init_dockerloaded().await?;
     }
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.get(1).is_some_and(|command| command == "setup") {
-        tracing::info!("welcome to setup!");
-        return Ok(());
+    // Handle CLI mode commands
+    if let Some(args) = dockerloader::is_cli_mode() {
+        match args.get(0).map(|s| s.as_str()) {
+            Some("setup") => {
+                tracing::info!("running setup...");
+                // TODO: actual setup logic
+                return Ok(());
+            }
+            Some(cmd) => {
+                bail!("unknown command: {}", cmd);
+            }
+            None => {
+                bail!("no command specified");
+            }
+        }
     }
 
     let config = load_config_or_spin().await?;

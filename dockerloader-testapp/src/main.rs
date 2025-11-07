@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     println!("Hello, world! Version: {}", version);
 
     // Skip mark_ready if running in CLI mode
-    if dockerloader::is_cli_mode() {
+    if let Some(_args) = dockerloader::is_cli_mode() {
         tracing::info!("CLI mode: skipping mark_ready and background tasks");
         return Ok(());
     }

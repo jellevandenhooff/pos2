@@ -5,8 +5,13 @@ pub const UPDATE_ATTEMPT_FILE: &str = "/data/dockerloader/update-attempt";
 pub const RESTART_EXIT_CODE: i32 = 42;
 
 /// Check if running in CLI mode (indicated by "cli" as first argument)
-pub fn is_cli_mode() -> bool {
-    std::env::args().nth(1).as_deref() == Some("cli")
+/// Returns the arguments after "cli" if in CLI mode, None otherwise
+pub fn is_cli_mode() -> Option<Vec<String>> {
+    if std::env::args().nth(1).as_deref() == Some("cli") {
+        Some(std::env::args().skip(2).collect())
+    } else {
+        None
+    }
 }
 
 use anyhow::{Result, bail, Context};
