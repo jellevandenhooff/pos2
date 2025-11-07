@@ -62,7 +62,7 @@ echo "Starting docker container $DOCKER_NAME."
 docker run \
 	--name $DOCKER_NAME \
 	--restart always \
-	-d \
+	-dit \
 	-e "DOCKERLOADER_TARGET=$RUNTIME_IMAGE" \
 	-e "DOCKERLOADER_UPDATE_INTERVAL_SECS=$UPDATE_INTERVAL" \
 	-v "$DATA_DIR:/data" \

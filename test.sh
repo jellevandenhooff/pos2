@@ -17,7 +17,7 @@ docker ps --filter name="wasi3experiment*" -aq | xargs -r docker stop -s SIGKILL
 docker ps --filter name="wasi3experiment*" -aq | xargs -r docker rm
 
 # Run dockerloader supervisor (no Docker socket mount needed)
-docker run --name=wasi3experiment --restart always \
+docker run -it --name=wasi3experiment --restart always \
   -e DOCKERLOADER_TARGET=host.docker.internal:5050/wasi3experiment:testing \
   -e DOCKERLOADER_UPDATE_INTERVAL_SECS=5 \
   -v "$(pwd)/data:/data" \
