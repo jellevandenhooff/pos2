@@ -1,0 +1,8 @@
+# Arch-specific linker configuration for musl static linking
+# We use musl targets for static linking, even on native builds
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-gnu-gcc"
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-gnu-gcc"
