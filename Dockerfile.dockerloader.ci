@@ -1,0 +1,46 @@
+FROM rust:1.90-trixie AS build
+
+ARG TARGETARCH
+
+RUN \
+  --mount=type=bind,source=cache/cargo-registry,target=/usr/local/cargo/registry \
+  --mount=type=bind,source=cache/cargo-git,target=/usr/local/cargo/git \
+  case "$TARGETARCH" in \
+    arm64) TARGET="aarch64-unknown-linux-musl" ;; \
+    amd64) TARGET="x86_64-unknown-linux-musl" ;; \
+    *) echo "Unsupported architecture: $TARGETARCH" && exit 1 ;; \
+  esac && \
+  rustup target add $TARGET
+
+WORKDIR /app
+COPY . /app
+
+RUN mkdir -p /out
+
+RUN \
+  --mount=type=bind,source=cache/cargo-registry,target=/usr/local/cargo/registry \
+  --mount=type=bind,source=cache/cargo-git,target=/usr/local/cargo/git \
+  --mount=type=bind,source=cache/target,target=/app/target \
+  case "$TARGETARCH" in \
+    arm64) TARGET="aarch64-unknown-linux-musl" ;; \
+    amd64) TARGET="x86_64-unknown-linux-musl" ;; \
+  esac && \
+  cargo build --target $TARGET --release -p dockerloader && \
+  cp /app/target/$TARGET/release/dockerloader /out/app
+
+# dockerloader is statically linked, but extracted binaries may need a dynamic linker
+RUN mkdir -p /out/lib /out/lib64 && \
+  case "$TARGETARCH" in \
+    arm64) cp /lib/ld-linux-aarch64.so.1 /out/lib/ ;; \
+    amd64) cp /lib64/ld-linux-x86-64.so.2 /out/lib64/ || true ;; \
+  esac
+
+FROM scratch AS app
+COPY --from=build /out/app /dockerloader
+COPY --from=build /out/lib /lib
+COPY --from=build /out/lib64 /lib64
+ENTRYPOINT ["/dockerloader"]
+ENV CONTAINER=1
+ENV RUST_LOG=info
+ENV DOCKERLOADER_TARGET=host.docker.internal:5050/dockerloaded:testing
+CMD []

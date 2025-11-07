@@ -1,8 +1,8 @@
-name: CI
+name: Supervisor CI
 on:
   push:
     branches:
-      - disabled-while-testing-new-cache
+      - main
 
 env:
   REGISTRY: ghcr.io
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    name: Build
+    name: Build supervisor
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +27,21 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
+      - name: Setup cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache/cargo-registry
+            cache/cargo-git
+            cache/target
+          key: ${{ runner.os }}-${{ matrix.architecture }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.architecture }}-cargo-
+      - name: Create cache directories
+        run: |
+          mkdir -p cache/cargo-registry
+          mkdir -p cache/cargo-git
+          mkdir -p cache/target
       - name: Setup docker buildx
         id: setup-buildx
         uses: docker/setup-buildx-action@v3
@@ -41,23 +56,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            prefix=supervisor-
           tags: |
             type=sha
-          # type=ref,event=branch
-      - name: Cache
-        uses: actions/cache@v4
-        id: cache
-        with:
-          path: cache-mount
-          key: cache-mount-main-${{ matrix.runner }}-${{ hashFiles('Dockerfile.wasi3experiment', 'Cargo.lock') }}
-      # TODO: do not use this cache mounts thing; it is slow. instead mount a volume?
-      - name: Restore docker cache mounts
-        uses: reproducible-containers/buildkit-cache-dance@v3
-        with:
-          builder: ${{ steps.setup-buildx.outputs.name }}
-          cache-dir: cache-mount
-          dockerfile: Dockerfile.wasi3experiment
-          skip-extraction: ${{ steps.cache.outputs.cache-hit }}
       - name: Build docker container
         id: push
         uses: docker/build-push-action@v6
@@ -65,7 +67,7 @@ jobs:
           context: .
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          file: Dockerfile.wasi3experiment
+          file: Dockerfile.dockerloader.ci
           platforms: linux/${{ matrix.architecture }}
           labels: ${{ steps.meta.outputs.labels}}
           tags: ${{ steps.meta.outputs.tags }}
@@ -78,13 +80,13 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
-          name: digests-linux-${{ matrix.architecture }}
+          name: digests-supervisor-linux-${{ matrix.architecture }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
 
   combine_multiarch:
-    name: Combine multiarch
+    name: Combine supervisor multiarch
     runs-on: ubuntu-24.04
     needs: build
     steps:
@@ -92,7 +94,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ${{ runner.temp }}/digests
-          pattern: digests-*
+          pattern: digests-supervisor-*
           merge-multiple: true
       - name: Log into github container registry
         uses: docker/login-action@v3
@@ -107,12 +109,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}
+          flavor: |
+            prefix=supervisor-
           tags: |
             type=ref,event=branch
             type=sha
-          # type=ref,event=pr
-          # type=semver,pattern={{version}}
-          # type=semver,pattern={{major}}.{{minor}}
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |
@@ -120,5 +121,4 @@ jobs:
             $(printf '${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
       - name: Inspect Image
         run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}:main
-        # ${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}:supervisor-main
