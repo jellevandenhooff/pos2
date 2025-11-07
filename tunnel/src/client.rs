@@ -166,7 +166,7 @@ pub fn test_conn_handler() -> impl crate::conn_handler::ConnHandler + Clone {
     crate::conn_handler::axum_router_to_conn_handler(router)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ClientState {
     pub endpoint: String,
     pub token: String,

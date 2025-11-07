@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context, bail};
 use axum::Extension;
 use axum::response::IntoResponse;
 use http_body_util::BodyExt;
@@ -330,40 +330,99 @@ async fn sync_apps(stop: CancellationToken, state: Arc<ServerState>, dir: &str) 
     Ok(())
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct Wasi3ExperimentConfig {
     listener: Option<ListenerConfig>,
+    tunnel: Option<tunnel::client::ClientState>,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct ListenerConfig {
     local: Option<LocalConfig>,
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct LocalConfig {
     address: String,
 }
 
 async fn load_config_or_spin() -> Result<Wasi3ExperimentConfig> {
+    let config_path = get_config_path();
     let mut printed_not_found = false;
     loop {
-        match tokio::fs::read_to_string("/data/config.toml").await {
+        match tokio::fs::read_to_string(&config_path).await {
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 if !printed_not_found {
                     printed_not_found = true;
                     // TODO: figure out docker name here?
                     tracing::info!(
-                        "config file does not exist. create it by running the setup command, with 'docker exec -it <container-name> /app setup'. waiting until configuration file exists..."
+                        "config file does not exist. create it by running the setup command, with 'docker exec -it <container-name> /app cli setup'. waiting until configuration file exists..."
                     );
                 }
             }
             Err(err) => {
                 bail!(err);
             }
-            Ok(contents) => return Ok(toml::from_str(&contents)?),
+            Ok(contents) => return Ok(serde_json::from_str(&contents)?),
         }
     }
+}
+
+fn prompt_setup() -> Result<Wasi3ExperimentConfig> {
+    let use_tunnel = inquire::Confirm::new("do you want to use tunnel mode?")
+        .with_default(false)
+        .prompt()
+        .context("failed to prompt for tunnel mode")?;
+
+    let tunnel_config = if use_tunnel {
+        tracing::info!("tunnel mode selected - setup will be implemented when tunnel logic is extracted");
+        // TODO: implement tunnel setup once we extract the logic from tunnel crate
+        // This will include:
+        // - endpoint selection
+        // - OAuth device flow
+        // - domain selection/registration
+        None
+    } else {
+        None
+    };
+
+    let default_address = "127.0.0.1:8080".to_string();
+    let address = inquire::Text::new("what address should the local listener use?")
+        .with_default(&default_address)
+        .prompt()
+        .context("failed to prompt for listener address")?;
+
+    Ok(Wasi3ExperimentConfig {
+        listener: Some(ListenerConfig {
+            local: Some(LocalConfig { address }),
+        }),
+        tunnel: tunnel_config,
+    })
+}
+
+fn get_config_path() -> String {
+    // TODO: move config path out of hardcoded /data to make testing easier
+    std::env::var("CONFIG_PATH").unwrap_or_else(|_| "/data/config.json".to_string())
+}
+
+async fn run_setup_interactive() -> Result<()> {
+    tracing::info!("running setup...");
+    let config = prompt_setup()?;
+
+    let config_json = serde_json::to_string_pretty(&config)
+        .context("failed to serialize config")?;
+
+    let config_path = get_config_path();
+    tokio::fs::write(&config_path, config_json)
+        .await
+        .context("failed to write config file")?;
+
+    tracing::info!("setup complete! config written to {}", config_path);
+    Ok(())
+}
+
+async fn run_setup() -> Result<()> {
+    run_setup_interactive().await
 }
 
 fn cancellation_on_signal() -> CancellationToken {
@@ -425,8 +484,7 @@ async fn main() -> Result<()> {
     if let Some(args) = dockerloader::is_cli_mode() {
         match args.get(0).map(|s| s.as_str()) {
             Some("setup") => {
-                tracing::info!("running setup...");
-                // TODO: actual setup logic
+                run_setup().await?;
                 return Ok(());
             }
             Some(cmd) => {
