@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "wasi3experiment", "wasi3app", "dockerloader", "dockerloaded", "dockerloader-bundler"]
+members = ["sqlite-plugin", "replsqlite", "tunnel", "wasi3experiment", "wasi3app", "dockerloader", "dockerloaded", "dockerloader-bundler"]
 
 [workspace.dependencies]
 anyhow = "1.0.100"
@@ -54,7 +54,6 @@ rustls-pki-types = "1.12.0"
 rustls-platform-verifier = "0.6.0"
 rustls-webpki = "0.103.3"
 sea-orm = "1.1.13"
-selfupdater = { path = "selfupdater" }
 serde = "1.0.228"
 serde_json = "1.0.145"
 serde_urlencoded = "0.7.1"

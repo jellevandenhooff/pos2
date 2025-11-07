@@ -34,6 +34,7 @@
 
 1. **Use 1-line commit messages** - Keep commit messages concise and on a single line
 2. **No emojis in commit messages** - Don't use emojis or decorative unicode characters in commit messages
+3. **No "Generated with" attribution** - Don't add "Generated with Claude Code" lines to commit messages. Co-Authored-By is okay
 
 ## Documentation
 
