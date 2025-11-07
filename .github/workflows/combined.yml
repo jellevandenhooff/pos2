@@ -47,8 +47,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=supervisor-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=supervisor-${{ matrix.architecture }}
           file: Dockerfile.dockerloader.ci
           build-args: |
             TARGETARCH=${{ matrix.architecture }}
@@ -103,8 +103,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=runtime-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.architecture }}
           file: Dockerfile.wasi3experiment.ci
           build-args: |
             TARGETARCH=${{ matrix.architecture }}
