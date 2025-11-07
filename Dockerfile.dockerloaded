@@ -8,6 +8,7 @@ COPY . /app
 ARG VERSION=unknown
 ARG FAIL_INIT=0
 ARG TIMEOUT_INIT=0
+ARG LONG_RUNNING=0
 
 RUN mkdir -p /out
 
@@ -24,8 +25,8 @@ RUN \
 RUN /tmp/dockerloader-bundler /tmp/dockerloaded /out
 
 # Create .env file with build args
-RUN printf "VERSION=%s\nFAIL_INIT=%s\nTIMEOUT_INIT=%s\nCONTAINER=1\nRUST_LOG=info\n" \
-  "$VERSION" "$FAIL_INIT" "$TIMEOUT_INIT" > /out/.env
+RUN printf "VERSION=%s\nFAIL_INIT=%s\nTIMEOUT_INIT=%s\nLONG_RUNNING=%s\nCONTAINER=1\nRUST_LOG=info\n" \
+  "$VERSION" "$FAIL_INIT" "$TIMEOUT_INIT" "$LONG_RUNNING" > /out/.env
 
 FROM scratch AS app
 COPY --from=build /out /

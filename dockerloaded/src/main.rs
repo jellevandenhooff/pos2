@@ -1,6 +1,5 @@
 use anyhow::Result;
 
-// TODO: run continuously
 // TODO: extract into wasi3experiment
 // TODO: make the install script somehow wait for the initial download to finish (for exec cli -- maybe dockerloader itself can be the entrypoint and wait?) -- and what happens with the trial balloon?
 // TODO: only copy (some) of the files into the loaded docker container?
@@ -33,6 +32,18 @@ async fn main() -> Result<()> {
     if std::env::var("DOCKERLOADER_TRIAL").is_ok() {
         tracing::info!("trial mode: sleeping for 2 seconds to simulate long-running process");
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+
+    // If LONG_RUNNING=1, start background update loop and run forever
+    if std::env::var("LONG_RUNNING").is_ok_and(|v| v == "1") {
+        tracing::info!("LONG_RUNNING=1, starting background update loop");
+        let _handle = dockerloader::start_update_loop().await?;
+
+        // Keep running forever - print a message every 5 seconds to show we're alive
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            tracing::info!("still running version {}", version);
+        }
     }
 
     Ok(())

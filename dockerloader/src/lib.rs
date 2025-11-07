@@ -326,14 +326,14 @@ pub async fn get_running_image_sha() -> Result<String> {
 }
 
 pub async fn check_for_update(reference: &str, current_sha: &str) -> Result<()> {
-    tracing::info!("Checking for updates for {}", reference);
+    tracing::info!("checking for updates for {}", reference);
 
     let oci_client = create_oci_client();
     let reference: oci_client::Reference = reference.try_into()?;
 
     let (reference, _manifest, new_sha) = download_manifest(&oci_client, &reference).await?;
 
-    tracing::info!("Current SHA: {}, Latest SHA: {}", current_sha, new_sha);
+    tracing::info!("current SHA: {}, latest SHA: {}", current_sha, new_sha);
 
     if current_sha == new_sha {
         tracing::info!("already running the latest version");
@@ -414,4 +414,47 @@ pub async fn mark_ready() -> Result<()> {
     check_for_update(&reference, &current_sha).await?;
 
     Ok(())
+}
+
+pub async fn start_update_loop() -> Result<tokio::task::JoinHandle<()>> {
+    let interval_secs = std::env::var("DOCKERLOADER_UPDATE_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(300);
+
+    let reference = std::env::var("DOCKERLOADER_TARGET")
+        .context("DOCKERLOADER_TARGET environment variable not set")?;
+
+    tracing::info!(
+        "starting update loop: checking {} every {} seconds",
+        reference,
+        interval_secs
+    );
+
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Skip the first tick which fires immediately
+        interval.tick().await;
+
+        loop {
+            interval.tick().await;
+
+            tracing::debug!("background update check triggered");
+
+            match get_running_image_sha().await {
+                Ok(current) => {
+                    if let Err(e) = check_for_update(&reference, &current).await {
+                        tracing::warn!("background update check failed: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("failed to get current sha for update check: {}", e);
+                }
+            }
+        }
+    });
+
+    Ok(handle)
 }
