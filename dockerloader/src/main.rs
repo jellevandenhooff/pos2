@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
     }
 
     tracing::info!(
-        "started dockerloader, checking for {}",
+        "started dockerloader, checking for {} ",
         dockerloader::ENTRYPOINT_PATH
     );
 
