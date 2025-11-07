@@ -368,20 +368,31 @@ async fn load_config_or_spin() -> Result<Wasi3ExperimentConfig> {
     }
 }
 
-fn prompt_setup() -> Result<Wasi3ExperimentConfig> {
+async fn prompt_setup() -> Result<Wasi3ExperimentConfig> {
     let use_tunnel = inquire::Confirm::new("do you want to use tunnel mode?")
         .with_default(false)
         .prompt()
         .context("failed to prompt for tunnel mode")?;
 
     let tunnel_config = if use_tunnel {
-        tracing::info!("tunnel mode selected - setup will be implemented when tunnel logic is extracted");
-        // TODO: implement tunnel setup once we extract the logic from tunnel crate
-        // This will include:
-        // - endpoint selection
-        // - OAuth device flow
-        // - domain selection/registration
-        None
+        tracing::info!("setting up tunnel...");
+
+        // Create environment for tunnel setup
+        // TODO: make base_dir configurable, currently hardcoded to /data
+        let env = tunnel::common::Environment::prod("/data".to_string())
+            .await
+            .context("failed to create tunnel environment")?;
+
+        let endpoints = tunnel::client::DEFAULT_ENDPOINTS
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        let client_state = tunnel::setup::run_interactive_setup(&env, endpoints)
+            .await
+            .context("failed to run tunnel setup")?;
+
+        Some(client_state)
     } else {
         None
     };
@@ -407,7 +418,7 @@ fn get_config_path() -> String {
 
 async fn run_setup_interactive() -> Result<()> {
     tracing::info!("running setup...");
-    let config = prompt_setup()?;
+    let config = prompt_setup().await?;
 
     let config_json = serde_json::to_string_pretty(&config)
         .context("failed to serialize config")?;

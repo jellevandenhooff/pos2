@@ -166,6 +166,8 @@ pub fn test_conn_handler() -> impl crate::conn_handler::ConnHandler + Clone {
     crate::conn_handler::axum_router_to_conn_handler(router)
 }
 
+pub const DEFAULT_ENDPOINTS: &[&str] = &["https://tunnel.nunya.cloud"];
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ClientState {
     pub endpoint: String,
@@ -188,126 +190,11 @@ pub async fn client_main(
     {
         (state.endpoint, state.domain, state.token)
     } else {
-        #[derive(Clone)]
-        enum TunnelChoice {
-            Known(String),
-            Custom,
-        }
+        let state = crate::setup::run_interactive_setup(&env, client_config.endpoints).await?;
 
-        impl Display for TunnelChoice {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    Self::Known(domain) => write!(f, "use tunnel server {}", domain),
-                    Self::Custom => write!(f, "use custom tunnel server"),
-                }
-            }
-        }
+        crate::common::write_json_file(&env.join_path("state.json"), &state).await?;
 
-        let mut choices = Vec::new();
-        choices.extend(
-            client_config
-                .endpoints
-                .iter()
-                .map(|endpoint| TunnelChoice::Known(endpoint.clone())),
-        );
-        choices.push(TunnelChoice::Custom);
-
-        let endpoint = {
-            let choice =
-                inquire::Select::new("what tunnel server would you like to use?", choices.clone())
-                    .prompt()?;
-
-            match choice {
-                TunnelChoice::Known(endpoint) => endpoint,
-                TunnelChoice::Custom => {
-                    let endpoint = inquire::prompt_text("please enter a endpoint")?;
-                    endpoint
-                }
-            }
-        };
-
-        let token = crate::web::run_device(&env, &endpoint).await?;
-
-        let client = crate::web::ApiClient::new(&env, &&endpoint, &token);
-
-        let info = client.test_request(&crate::web::ApiTestRequest {}).await?;
-
-        #[derive(Clone)]
-        enum DomainChoice {
-            Existing(String),
-            WithSuffix(String),
-        }
-
-        impl Display for DomainChoice {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    Self::Existing(domain) => write!(f, "use existing domain {}", domain),
-                    Self::WithSuffix(suffix) => write!(f, "new domain ending in {}", suffix),
-                }
-            }
-        }
-
-        let mut choices = Vec::new();
-        choices.extend(
-            info.domains
-                .iter()
-                .map(|domain| DomainChoice::Existing(domain.clone())),
-        );
-        choices.extend(
-            info.available_suffixes
-                .iter()
-                .map(|suffix| DomainChoice::WithSuffix(suffix.clone())),
-        );
-
-        if choices.len() == 0 {
-            bail!("sorry, you have no domains");
-        }
-
-        let (domain, new) = loop {
-            let choice =
-                inquire::Select::new("what domain would you like to use?", choices.clone())
-                    .prompt()?;
-
-            let (domain, new) = match choice {
-                DomainChoice::Existing(domain) => (domain, false),
-                DomainChoice::WithSuffix(suffix) => {
-                    let prefix = inquire::prompt_text("please pick a name before the suffix")?;
-                    let domain = format!("{}{}", prefix, suffix);
-                    (domain, true)
-                }
-            };
-
-            println!("got: {}", domain);
-
-            let ok = inquire::prompt_confirmation(format!(
-                "continue with domain {}? this will go and get a domain [yes/no]",
-                &domain
-            ))?;
-            if ok {
-                break (domain, new);
-            }
-        };
-
-        if new {
-            let _resp = client
-                .register_domain(&crate::web::ApiRegisterDomainRequest {
-                    domain: domain.clone(),
-                })
-                .await?;
-            println!("registered: {}", domain);
-        }
-
-        println!("domain: {} token: {}", domain, token);
-        crate::common::write_json_file(
-            &env.join_path("state.json"),
-            &ClientState {
-                endpoint: endpoint.clone(),
-                token: token.clone(),
-                domain: domain.clone(),
-            },
-        )
-        .await?;
-        (endpoint, domain, token)
+        (state.endpoint, state.domain, state.token)
     };
 
     let name = &domain;
