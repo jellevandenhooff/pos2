@@ -40,6 +40,8 @@
 1. **Keep READMEs up to date** - When adding new features or changing existing functionality, update relevant README files
 2. **Keep READMEs concise** - Avoid excessive detail that will be distracting. Focus on high-level overview and usage
 3. **No implementation details in READMEs** - Don't document internal function calls or detailed step-by-step execution flows
+4. **Minimal markup in READMEs** - Avoid excessive markdown formatting like bold (**text**). Plain text is preferred
+5. **Use sentence case for headers** - Headers should start with a capital letter but not capitalize every word. "Background update loop" not "Background Update Loop"
 
 ## Testing
 

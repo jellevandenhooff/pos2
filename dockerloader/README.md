@@ -6,40 +6,40 @@ A self-updating container loader for Rust applications. dockerloader enables you
 
 ### Components
 
-- **dockerloader** (supervisor): Main process that manages the application lifecycle
-- **dockerloaded** (application): Example application that uses dockerloader for self-updates
+- dockerloader (supervisor): main process that manages the application lifecycle
+- dockerloaded (application): example application that uses dockerloader for self-updates
 
-### How It Works
+### How it works
 
-1. **Supervisor Pattern**: dockerloader runs as the main process and spawns your application as a subprocess
-2. **Update Detection**: Application checks for new versions in the OCI registry
-3. **Safe Updates**: New versions are tested in "trial mode" before being committed
-4. **Automatic Rollback**: If trial times out or fails, the previous version is restored
-5. **File-based IPC**: Symlinks and exit codes are used for communication between supervisor and app
+1. supervisor pattern: dockerloader runs as the main process and spawns your application as a subprocess
+2. update detection: application checks for new versions in the OCI registry
+3. safe updates: new versions are tested in "trial mode" before being committed
+4. automatic rollback: if trial times out or fails, the previous version is restored
+5. file-based IPC: symlinks and exit codes are used for communication between supervisor and app
 
-### IPC Contract
+### IPC contract
 
-**Symlinks:**
-- `/data/dockerloader/entrypoint` - Current stable version
-- `/data/dockerloader/entrypoint-attempt` - Pending update (created by app)
-- `/data/dockerloader/entrypoint-attempting` - Currently being tested (created by supervisor)
+Symlinks:
+- `/data/dockerloader/entrypoint` - current stable version
+- `/data/dockerloader/entrypoint-attempt` - pending update (created by app)
+- `/data/dockerloader/entrypoint-attempting` - currently being tested (created by supervisor)
 
-**Marker Files:**
-- `/data/dockerloader/update-attempt` - Contains SHA of failed update attempt (prevents retry)
+Marker files:
+- `/data/dockerloader/update-attempt` - contains SHA of failed update attempt (prevents retry)
 
-**Exit Codes:**
-- Exit code **42** - Signals supervisor to restart (update available)
-- Other exit codes - Supervisor exits with same code
+Exit codes:
+- exit code 42 - signals supervisor to restart (update available)
+- other exit codes - supervisor exits with same code
 
 ## Storage
 
 - `/data/dockerloader/storage/v1/blobs/` - OCI blob cache (layers, configs)
-- `/data/dockerloader/storage/v1/images/` - Downloaded manifests
-- `/data/dockerloader/storage/v1/extracted/` - Extracted image filesystems
+- `/data/dockerloader/storage/v1/images/` - downloaded manifests
+- `/data/dockerloader/storage/v1/extracted/` - extracted image filesystems
 
 Old images and unreferenced blobs are cleaned up when `mark_ready()` is called.
 
-## Environment Variables
+## Environment variables
 
 ### Required
 
@@ -47,14 +47,14 @@ Old images and unreferenced blobs are cleaned up when `mark_ready()` is called.
 
 ### Optional
 
-- `DOCKERLOADER_TRIAL_TIMEOUT_MS` - Trial mode timeout in milliseconds (default: 10000)
-- `DOCKERLOADER_TRIAL` - Set by supervisor during trial runs (do not set manually)
+- `DOCKERLOADER_TRIAL_TIMEOUT_MS` - trial mode timeout in milliseconds (default: 10000)
+- `DOCKERLOADER_TRIAL` - set by supervisor during trial runs (do not set manually)
 
 ### Application-specific
 
 Your application can include a `.env` file in the image root. Variables from this file are loaded during `init_dockerloaded()`.
 
-## Usage in Your Application
+## Usage in your application
 
 ```rust
 #[tokio::main]
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
 }
 ```
 
-## Background Update Loop
+## Background update loop
 
 Start a background update loop to continuously check for updates:
 
@@ -85,7 +85,7 @@ let _update_handle = dockerloader::start_update_loop().await?;
 ```
 
 Configuration:
-- `DOCKERLOADER_UPDATE_INTERVAL_SECS` - How often to check for updates (default: 300 = 5 minutes)
+- `DOCKERLOADER_UPDATE_INTERVAL_SECS` - how often to check for updates (default: 300 = 5 minutes)
 
 ## Testing
 
@@ -103,4 +103,4 @@ The tests build test images, push them to a local registry, and verify:
 - Background update loop detection
 - Storage cleanup
 
-**Test data location:** Integration tests use `dockerloader/data/` for their data volume to avoid conflicts with application data in workspace `data/`.
+Test data location: Integration tests use `dockerloader/data/` for their data volume to avoid conflicts with application data in workspace `data/`.
