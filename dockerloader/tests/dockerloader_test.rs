@@ -62,6 +62,8 @@ fn dockerloader(data_dir: &str, cwd: &str) -> Result<String> {
         vec![
             "run".into(),
             "--rm".into(),
+            "-e".into(),
+            "DOCKERLOADER_TRIAL_TIMEOUT_MS=500".into(),
             "-v".into(),
             format!("{}:/data", data_dir),
             "dockerloader:testing".into(),
