@@ -14,6 +14,10 @@ The supervisor downloads the runtime image, extracts it to `/data/dockerloader`,
 - supervisor: `Dockerfile.dockerloader`
 - runtime: `Dockerfile.wasi3experiment`
 
+## development
+
+workspace dependencies are managed with `cargo-autoinherit`. run `cargo autoinherit` after modifying workspace dependencies to ensure consistency across crates
+
 ## CI
 
 `.github/workflows/combined.yml` builds both supervisor and runtime for amd64 and arm64, then combines them into multiarch manifests:

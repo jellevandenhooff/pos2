@@ -95,6 +95,10 @@ dockerloader = { path = "dockerloader" }
 flate2 = "1.1.5"
 serial_test = "3.2.0"
 tar = "0.4.44"
+expectrl = "0.7"
+portpicker = "0.1"
+regex = "1"
+tempfile = "3"
 
 [patch.crates-io]
 wit-bindgen = { git = "https://github.com/jellevandenhooff/wit-bindgen.git", rev = "cd680eee4c80b232709d7ef6051bb1a330164272" } # path = "../wit-bindgen/crates/guest-rust" }
