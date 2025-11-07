@@ -2,6 +2,9 @@
 resolver = "3"
 members = ["sqlite-plugin", "replsqlite", "tunnel", "wasi3experiment", "wasi3app", "dockerloader", "dockerloader-testapp", "dockerloader-bundler"]
 
+[workspace.lints.rust]
+dead_code = "allow"
+
 [workspace.dependencies]
 anyhow = "1.0.100"
 async-trait = "0.1.88"

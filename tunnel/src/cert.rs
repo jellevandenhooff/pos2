@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use http::Request;
-use http_body_util::Full;
 use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;

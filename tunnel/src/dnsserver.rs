@@ -27,8 +27,6 @@ use hickory_server::{
 };
 use std::str::FromStr;
 
-use crate::cert::make_test_client_tlsconfig;
-
 // XXX pub
 pub struct ReadonlyRequestHandler<T: RequestHandler> {
     underlying: T,

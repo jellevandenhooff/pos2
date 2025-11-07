@@ -1,6 +1,6 @@
-use std::{fmt::Display, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use axum::extract::ConnectInfo;
 use backoff::{SystemClock, backoff::Backoff};
 use serde::{Deserialize, Serialize};

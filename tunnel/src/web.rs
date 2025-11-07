@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::{Context, Result, bail};
 use axum::extract::{Query, Request};
 use axum::response::{IntoResponse, Response};

@@ -1,4 +1,4 @@
-use std::{env::args, sync::Arc, time::Duration};
+use std::env::args;
 
 use anyhow::{Context, Result, bail};
 use clap::Parser;
