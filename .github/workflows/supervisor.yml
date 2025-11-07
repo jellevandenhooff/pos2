@@ -41,10 +41,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}
-          flavor: |
-            prefix=supervisor-
           tags: |
-            type=sha
+            type=sha,prefix=supervisor-sha-
       - name: Build docker container
         id: push
         uses: docker/build-push-action@v6
@@ -94,11 +92,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.REGISTRY_IMAGE }}
-          flavor: |
-            prefix=supervisor-
           tags: |
-            type=ref,event=branch
-            type=sha
+            type=ref,event=branch,prefix=supervisor-
+            type=sha,prefix=supervisor-sha-
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
         run: |

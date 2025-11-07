@@ -17,10 +17,12 @@ COPY dockerloader/Cargo.toml dockerloader/
 COPY dockerloader-bundler/Cargo.toml dockerloader-bundler/
 COPY wasi3experiment/Cargo.toml wasi3experiment/
 
-# Initialize dummy packages and build to cache dependencies
-RUN cargo init --bin dockerloader && \
-    cargo init --bin dockerloader-bundler && \
-    cargo init --bin wasi3experiment && \
+# Create dummy source files and build to cache dependencies
+RUN mkdir -p dockerloader/src dockerloader-bundler/src wasi3experiment/src && \
+    echo "fn main() {}" > dockerloader/src/main.rs && \
+    touch dockerloader/src/lib.rs && \
+    echo "fn main() {}" > dockerloader-bundler/src/main.rs && \
+    echo "fn main() {}" > wasi3experiment/src/main.rs && \
     case "$TARGETARCH" in \
       arm64) TARGET="aarch64-unknown-linux-musl" ;; \
       amd64) TARGET="x86_64-unknown-linux-musl" ;; \
