@@ -6,4 +6,4 @@ local
 loaderdatavolume
 .direnv
 .DS_Store
-data
+**/data

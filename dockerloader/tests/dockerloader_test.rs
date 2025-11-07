@@ -144,7 +144,7 @@ fn test_dockerloader_update_flow() -> Result<()> {
         .unwrap()
         .to_str()
         .unwrap();
-    let data_dir = format!("{}/data/dockerloader", workspace_dir);
+    let data_dir = format!("{}/dockerloader/data", workspace_dir);
 
     let _ = std::fs::remove_dir_all(&data_dir);
 
@@ -235,7 +235,7 @@ fn test_dockerloader_timeout() -> Result<()> {
         .unwrap()
         .to_str()
         .unwrap();
-    let data_dir = format!("{}/data/dockerloader", workspace_dir);
+    let data_dir = format!("{}/dockerloader/data", workspace_dir);
 
     let _ = std::fs::remove_dir_all(&data_dir);
 
@@ -284,7 +284,7 @@ fn test_background_update_loop() -> Result<()> {
         .unwrap()
         .to_str()
         .unwrap();
-    let data_dir = format!("{}/data/dockerloader", workspace_dir);
+    let data_dir = format!("{}/dockerloader/data", workspace_dir);
 
     let _ = std::fs::remove_dir_all(&data_dir);
 

@@ -75,13 +75,13 @@ async fn main() -> Result<()> {
 }
 ```
 
-## Background Update Loop (Coming Soon)
+## Background Update Loop
 
-A background update loop function is being added to enable continuous update checking:
+Start a background update loop to continuously check for updates:
 
 ```rust
-// This will be available soon
-dockerloader::start_update_loop().await?;
+// Start background update checking
+let _update_handle = dockerloader::start_update_loop().await?;
 ```
 
 Configuration:
@@ -100,4 +100,7 @@ The tests build test images, push them to a local registry, and verify:
 - Trial mode and commit logic
 - Failed update handling and rollback
 - Timeout handling
+- Background update loop detection
 - Storage cleanup
+
+**Test data location:** Integration tests use `dockerloader/data/` for their data volume to avoid conflicts with application data in workspace `data/`.
