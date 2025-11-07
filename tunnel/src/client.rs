@@ -42,7 +42,10 @@ where
 
     async fn serve_conn(self: Arc<Self>, conn: quinn::Connection) -> Result<()> {
         loop {
+            // accept incoming bidirectional stream from server
             let (send, mut recv) = conn.accept_bi().await?;
+
+            // read client socket address sent by server
             let addr_len = recv.read_u8().await.unwrap();
             let mut addr = vec![0; addr_len.into()];
             recv.read_exact(addr.as_mut_slice()).await.unwrap();
@@ -57,6 +60,7 @@ where
             let mut conn_handler = self.conn_handler.clone();
 
             tokio::spawn(async move {
+                // terminate TLS and forward to local handler
                 // TODO: protocol stuff?
                 let acceptor = tokio_rustls::TlsAcceptor::from(config);
                 let stream = acceptor.accept(io).await.unwrap();
@@ -78,6 +82,7 @@ where
         quinn_config.transport_config(Arc::new(transport_config));
         client_endpoint.set_default_client_config(quinn_config);
 
+        // get server endpoint from API
         let tunnel_info = self.get_tunnel_info().await?;
         println!("endpoint: {}", tunnel_info.quic_endpoint);
 
@@ -90,10 +95,11 @@ where
 
         let tunnel_host = extract_host(&tunnel_info.quic_endpoint)?;
 
-        // name here is for TLS
+        // open QUIC connection
         let conn = client_endpoint.connect(addr, tunnel_host)?.await?;
         println!("made a connection!");
 
+        // perform handshake: send domain and token, wait for server confirmation
         let (mut outgoing, incoming) = conn.open_bi().await?;
         // XXX: binary encoding?
         let buf = serde_json::to_vec(&crate::common::ClientHello {

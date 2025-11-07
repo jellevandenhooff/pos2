@@ -76,6 +76,7 @@ impl TunnelServer {
         let (conn, domain) =
             timeout(Duration::from_secs(5), self.clone().run_handshake(conn)).await??;
 
+        // store connection in map by domain, closing any previous connection for same domain
         {
             let mut conns = self.conns.lock().unwrap();
             let mut entry = conns.entry(domain.clone());
@@ -83,6 +84,7 @@ impl TunnelServer {
             entry.insert_entry(conn.clone());
         }
 
+        // wait for connection to close, then clean up from map
         {
             conn.closed().await;
             let mut conns = self.conns.lock().unwrap();
@@ -142,6 +144,7 @@ impl crate::sni_router::ParsedHelloConnHandler for Arc<TunnelServer> {
         tcp_conn: crate::sni_router::ParsedHello,
         addr: SocketAddr,
     ) -> Result<()> {
+        // look up QUIC connection for this domain from SNI
         let conn = {
             let conns = self.conns.lock().unwrap();
             let hello = tcp_conn.client_hello();
@@ -151,6 +154,7 @@ impl crate::sni_router::ParsedHelloConnHandler for Arc<TunnelServer> {
                 .clone()
         };
 
+        // open bidirectional stream to client and send client socket address
         let addr_encoded = bincode::encode_to_vec(addr, bincode::config::standard()).unwrap();
         let addr_len = addr_encoded.len();
 
@@ -161,6 +165,7 @@ impl crate::sni_router::ParsedHelloConnHandler for Arc<TunnelServer> {
         tunnel_send.write_u8(addr_len as u8).await?;
         tunnel_send.write_all(&addr_encoded).await?;
 
+        // proxy traffic bidirectionally between tcp connection and tunnel stream
         let mut tunnel = tokio::io::join(tunnel_recv, tunnel_send);
         let mut tcp_conn = crate::timeout_stream::TimeoutStream::new(
             tcp_conn.unread_conn(),

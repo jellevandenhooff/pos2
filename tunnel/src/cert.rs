@@ -312,6 +312,7 @@ pub async fn ordercert(
 
     // Pick the desired challenge type and prepare the response.
 
+    // complete DNS-01 challenges for each domain
     let mut authorizations = order.authorizations();
     while let Some(result) = authorizations.next().await {
         let mut authz = result?;
@@ -343,6 +344,7 @@ pub async fn ordercert(
         // TODO: here we are running the challenges serially. makes sense, i think. that means we
         // can cap the number of records at 1?
 
+        // write TXT record to DNS server for ACME validation
         dns_server
             .add_txt_record(
                 &format!("_acme-challenge.{}.", dns),
@@ -503,6 +505,7 @@ impl CertMaintainer {
     }
 
     pub async fn maintain_certs(&mut self) -> Result<()> {
+        // background loop to monitor renewal windows and renew certificates
         // TODO: retry on fail?
         loop {
             loop {
@@ -522,6 +525,7 @@ impl CertMaintainer {
                 };
             }
 
+            // renew certificate via ACME with replaces parameter
             // TODO: log
             let newinfo = ordercert(
                 &self.env,
@@ -533,6 +537,7 @@ impl CertMaintainer {
             )
             .await?;
 
+            // hot-swap new certificate into TLS config
             self.acceptor.update_key(&newinfo)?;
             self.loaded = newinfo;
         }
