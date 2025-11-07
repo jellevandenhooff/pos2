@@ -1,12 +1,19 @@
 pub const ENTRYPOINT_PATH: &str = "/data/dockerloader/entrypoint";
+pub const UPDATE_ATTEMPT_FILE: &str = "/data/dockerloader/update-attempt";
 
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, Context};
 use flate2::read::GzDecoder;
 use futures::StreamExt;
 use oci_client::{Reference, manifest::OciImageManifest};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use tar::Archive;
 use tokio::io::AsyncWriteExt;
+
+pub struct DockerloadedContext {
+    original_env: Vec<(String, String)>,
+    trial_succeeded: Arc<AtomicBool>,
+}
 
 pub fn execve_into(path: &Path, env: &Vec<(String, String)>) -> Result<std::convert::Infallible> {
     use std::ffi::CString;
@@ -293,4 +300,167 @@ pub async fn download_entrypoint_initial(reference: &str) -> Result<()> {
     tokio::fs::symlink(&entrypoint_source, ENTRYPOINT_PATH).await?;
 
     Ok(())
+}
+
+pub async fn was_update_attempted(sha: &str) -> bool {
+    if let Ok(attempted_sha) = tokio::fs::read_to_string(UPDATE_ATTEMPT_FILE).await {
+        attempted_sha.trim() == sha
+    } else {
+        false
+    }
+}
+
+pub async fn apply_image_env_vars(sha: &str) -> Result<()> {
+    let path = format!("/data/dockerloader/storage/v1/extracted/{sha}/.env");
+    let env_file = tokio::fs::read_to_string(path).await?;
+    let lines = env_file.lines();
+    for line in lines {
+        if let Some((key, value)) = line.split_once('=') {
+            unsafe {
+                std::env::set_var(key, value);
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn get_running_image_sha() -> Result<String> {
+    let exe_path = std::env::current_exe().context("failed to get current executable path")?;
+
+    // Extract sha from path like /data/dockerloader/storage/v1/extracted/{sha}/entrypoint
+    let path_str = exe_path.to_string_lossy();
+    let parts: Vec<&str> = path_str.split('/').collect();
+
+    // Find the part after "extracted"
+    for (i, part) in parts.iter().enumerate() {
+        if *part == "extracted" && i + 1 < parts.len() {
+            return Ok(parts[i + 1].to_string());
+        }
+    }
+
+    bail!("could not find sha in executable path: {}", path_str)
+}
+
+pub async fn check_for_update(
+    reference: &str,
+    current_sha: &str,
+    original_env: &[(String, String)],
+) -> Result<()> {
+    tracing::info!("Checking for updates for {}", reference);
+
+    let oci_client = create_oci_client();
+    let reference: oci_client::Reference = reference.try_into()?;
+
+    let (reference, _manifest, new_sha) = download_manifest(&oci_client, &reference).await?;
+
+    tracing::info!("Current SHA: {}, Latest SHA: {}", current_sha, new_sha);
+
+    if current_sha == new_sha {
+        tracing::info!("already running the latest version");
+        return Ok(());
+    }
+
+    if was_update_attempted(&new_sha).await {
+        tracing::warn!("skipping update to {} - previous attempt failed", new_sha);
+        return Ok(());
+    }
+
+    tracing::info!(
+        "update available, downloading version {} from ref {}",
+        new_sha,
+        reference
+    );
+
+    download_image(&oci_client, &reference).await?;
+
+    let extracted_path = extract_image(&new_sha).await?;
+    let new_entrypoint = extracted_path.join("entrypoint");
+
+    tokio::fs::write(UPDATE_ATTEMPT_FILE, &new_sha)
+        .await
+        .context("failed to write update-attempt marker")?;
+
+    tracing::info!("execve into {:?} for trial", new_entrypoint);
+
+    let mut trial_env = original_env.to_vec();
+    trial_env.push(("DOCKERLOADER_TRIAL".to_string(), "1".to_string()));
+
+    execve_into(&new_entrypoint, &trial_env)?;
+
+    Ok(())
+}
+
+pub async fn init_dockerloaded() -> Result<DockerloadedContext> {
+    let original_env: Vec<_> = std::env::vars().collect();
+    let current_sha = get_running_image_sha().await?;
+
+    apply_image_env_vars(&current_sha).await?;
+
+    let in_trial_mode = std::env::var("DOCKERLOADER_TRIAL").is_ok();
+    let trial_succeeded = Arc::new(AtomicBool::new(false));
+
+    if in_trial_mode {
+        let timeout_duration = if std::env::var("TIMEOUT_INIT").is_ok() {
+            std::time::Duration::from_millis(500)
+        } else {
+            std::time::Duration::from_secs(10)
+        };
+
+        let trial_succeeded = trial_succeeded.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(timeout_duration);
+            eprintln!(
+                "DOCKERLOADER_TRIAL timeout hit after {:#?}, aborting",
+                timeout_duration
+            );
+            if !trial_succeeded.load(Ordering::SeqCst) {
+                std::process::abort();
+            }
+        });
+    }
+
+    tracing::info!("dockerloaded started (trial mode: {})", in_trial_mode);
+
+    Ok(DockerloadedContext { original_env, trial_succeeded })
+}
+
+impl DockerloadedContext {
+    pub async fn finalize(self) -> Result<()> {
+        let current_sha = get_running_image_sha().await?;
+
+        let in_trial_mode = std::env::var("DOCKERLOADER_TRIAL").is_ok();
+
+        if in_trial_mode {
+            let current_entrypoint =
+                format!("/data/dockerloader/storage/v1/extracted/{current_sha}/entrypoint");
+            let entrypoint_path = ENTRYPOINT_PATH;
+
+            let tmp_symlink = format!("{}.tmp", entrypoint_path);
+            if let Ok(true) = tokio::fs::try_exists(&tmp_symlink).await {
+                tokio::fs::remove_file(&tmp_symlink).await?;
+            }
+            tokio::fs::symlink(&current_entrypoint, &tmp_symlink)
+                .await
+                .context("failed to create temporary symlink")?;
+
+            tokio::fs::rename(&tmp_symlink, entrypoint_path)
+                .await
+                .context("failed to update entrypoint symlink")?;
+
+            self.trial_succeeded.store(true, Ordering::SeqCst);
+
+            let _ = tokio::fs::remove_file(UPDATE_ATTEMPT_FILE).await;
+
+            tracing::info!("trial successful, committed to version {}", current_sha);
+        }
+
+        if let Err(e) = cleanup_storage(&[&current_sha]).await {
+            tracing::warn!("cleanup failed: {}", e);
+        }
+
+        let reference = std::env::var("DOCKERLOADER_TARGET")?;
+        check_for_update(&reference, &current_sha, &self.original_env).await?;
+
+        Ok(())
+    }
 }
