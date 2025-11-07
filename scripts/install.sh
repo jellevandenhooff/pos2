@@ -70,8 +70,14 @@ docker run \
 echo "Created docker container $DOCKER_NAME."
 echo
 echo "The supervisor is now running and will download the runtime."
-echo "You can view logs with: docker logs -f $DOCKER_NAME"
+echo "Waiting for runtime to be ready..."
+if docker exec $DOCKER_NAME cli setup; then
+	echo
+	echo "Setup completed successfully!"
+else
+	echo
+	echo "Setup encountered an error. Check logs with: docker logs $DOCKER_NAME"
+	exit 1
+fi
 echo
-# TODO: figure out how to run setup inside the extracted runtime
-# The supervisor runs /dockerloader which spawns /entrypoint from extracted runtime
-# We need a way to exec into the spawned process or trigger setup via the runtime
+echo "Installation complete! You can view logs with: docker logs -f $DOCKER_NAME"
