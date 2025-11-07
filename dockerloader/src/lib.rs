@@ -27,10 +27,10 @@ fn uuid() -> String {
 }
 
 async fn clean_tmp_in_dir(path: &std::path::Path) -> Result<()> {
+    // Rename tmp-* to removing-*
     let mut iter = tokio::fs::read_dir(path).await?;
     while let Some(entry) = iter.next_entry().await? {
         let Ok(old_name) = entry.file_name().into_string() else {
-            // TODO: complain about name?
             continue;
         };
         let Some(trimmed) = old_name.strip_prefix("tmp-") else {
@@ -38,21 +38,26 @@ async fn clean_tmp_in_dir(path: &std::path::Path) -> Result<()> {
         };
         let new_name = format!("removing-{}", trimmed);
 
+        tracing::info!("marking tmp file for removal: {}", old_name);
         let old_path = path.join(&old_name);
         let new_path = path.join(&new_name);
-
-        // tolerate errors?
         tokio::fs::rename(&old_path, &new_path).await?;
     }
 
+    // Remove all removing-* files/dirs
     let mut iter = tokio::fs::read_dir(path).await?;
     while let Some(entry) = iter.next_entry().await? {
-        let Ok(info) = entry.metadata().await else {
-            // TODO: log err instead?
+        let Ok(name) = entry.file_name().into_string() else {
             continue;
         };
+        if !name.starts_with("removing-") {
+            continue;
+        };
+        let Ok(info) = entry.metadata().await else {
+            continue;
+        };
+        tracing::info!("removing tmp item: {}", name);
         if info.is_dir() {
-            // tolerate errors?
             tokio::fs::remove_dir_all(entry.path()).await?;
         } else {
             tokio::fs::remove_file(entry.path()).await?;
@@ -189,6 +194,79 @@ pub async fn extract_image(sha: &str) -> Result<PathBuf> {
     tokio::fs::rename(&tmp_path, &final_path).await?;
 
     Ok(final_path)
+}
+
+pub async fn cleanup_storage(keep_shas: &[&str]) -> Result<()> {
+    use std::collections::HashSet;
+
+    let blobs_dir = PathBuf::from("/data/dockerloader/storage/v1/blobs");
+    let images_dir = PathBuf::from("/data/dockerloader/storage/v1/images");
+    let extracted_dir = PathBuf::from("/data/dockerloader/storage/v1/extracted");
+
+    // Clean tmp files in all directories
+    for dir in [&blobs_dir, &images_dir, &extracted_dir] {
+        if let Ok(true) = tokio::fs::try_exists(dir).await {
+            if let Err(e) = clean_tmp_in_dir(dir).await {
+                tracing::warn!("failed to clean tmp in {:?}: {}", dir, e);
+            }
+        }
+    }
+
+    let keep_shas: HashSet<&str> = keep_shas.iter().copied().collect();
+
+    // Collect all blobs referenced by kept images
+    let mut referenced_blobs = HashSet::new();
+    for sha in &keep_shas {
+        let manifest_path = images_dir.join(sha);
+        let Ok(manifest_json) = tokio::fs::read_to_string(&manifest_path).await else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<OciImageManifest>(&manifest_json) else {
+            continue;
+        };
+        referenced_blobs.insert(manifest.config.digest);
+        for layer in manifest.layers {
+            referenced_blobs.insert(layer.digest);
+        }
+    }
+
+    // Delete old extracted directories
+    if let Ok(mut iter) = tokio::fs::read_dir(&extracted_dir).await {
+        while let Some(entry) = iter.next_entry().await.ok().flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !keep_shas.contains(name_str.as_ref()) {
+                tracing::info!("removing old extracted dir: {}", name_str);
+                let _ = tokio::fs::remove_dir_all(entry.path()).await;
+            }
+        }
+    }
+
+    // Delete old image manifests
+    if let Ok(mut iter) = tokio::fs::read_dir(&images_dir).await {
+        while let Some(entry) = iter.next_entry().await.ok().flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !keep_shas.contains(name_str.as_ref()) {
+                tracing::info!("removing old image manifest: {}", name_str);
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
+
+    // Delete unreferenced blobs
+    if let Ok(mut iter) = tokio::fs::read_dir(&blobs_dir).await {
+        while let Some(entry) = iter.next_entry().await.ok().flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if !referenced_blobs.contains(name_str.as_ref()) {
+                tracing::info!("removing unreferenced blob: {}", name_str);
+                let _ = tokio::fs::remove_file(entry.path()).await;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn create_oci_client() -> oci_client::Client {

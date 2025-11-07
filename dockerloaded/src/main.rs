@@ -104,9 +104,7 @@ async fn check_for_update(
 
 // TODO: run continuously
 // TODO: move all (?) code into lib
-// TODO: make build work cross arch
 // TODO: extract into wasi3experiment
-// TODO: delete old images (anything except current?)
 // TODO: make the install script somehow wait for the initial download to finish (for exec cli -- maybe dockerloader itself can be the entrypoint and wait?) -- and what happens with the trial balloon?
 // TODO: only copy (some) of the files into the loaded docker container?
 // TODO: maybe move the exec/restart to the outer dockerloader -- then it can do the timer??? and include the env??
@@ -186,6 +184,11 @@ async fn main() -> Result<()> {
         let _ = tokio::fs::remove_file(UPDATE_ATTEMPT_FILE).await;
 
         tracing::info!("trial successful, committed to version {}", current_sha);
+    }
+
+    // Clean up old images and blobs
+    if let Err(e) = dockerloader::cleanup_storage(&[&current_sha]).await {
+        tracing::warn!("cleanup failed: {}", e);
     }
 
     let reference = std::env::var("DOCKERLOADER_TARGET")?;

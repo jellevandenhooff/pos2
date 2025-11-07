@@ -97,6 +97,13 @@ fn extract_sha(path: &str) -> Result<String> {
     anyhow::bail!("could not find sha256: in path: {}", path)
 }
 
+fn count_files_in_dir(dir: &str) -> Result<usize> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(0);
+    };
+    Ok(entries.count())
+}
+
 #[test]
 #[serial_test::serial]
 fn test_dockerloader_update_flow() -> Result<()> {
@@ -138,6 +145,29 @@ fn test_dockerloader_update_flow() -> Result<()> {
 
     let v2_target = read_symlink_target(&data_dir)?;
     println!("V2 symlink target: {}", v2_target);
+
+    // Verify cleanup happened - should only have v2 now, v1 should be cleaned up
+    println!("Verifying cleanup removed old v1 files");
+    let extracted_dir = format!("{}/dockerloader/storage/v1/extracted", data_dir);
+    let images_dir = format!("{}/dockerloader/storage/v1/images", data_dir);
+    let blobs_dir = format!("{}/dockerloader/storage/v1/blobs", data_dir);
+    assert_eq!(count_files_in_dir(&extracted_dir)?, 1);
+    assert_eq!(count_files_in_dir(&images_dir)?, 1);
+
+    // Create tmp files to verify tmp cleanup works
+    println!("Creating tmp files to test cleanup");
+    std::fs::write(format!("{}/tmp-testfile", images_dir), "test")?;
+    std::fs::create_dir(format!("{}/tmp-testdir", blobs_dir))?;
+
+    // Run again - cleanup should remove tmp files
+    println!("Running to trigger cleanup of tmp files");
+    let output = dockerloader(&data_dir, workspace_dir)?;
+    assert!(output.contains("Version: 2.0"));
+
+    // Verify tmp files are gone
+    println!("Verifying tmp files were cleaned up");
+    assert!(!std::fs::exists(format!("{}/tmp-testfile", images_dir))?);
+    assert!(!std::fs::exists(format!("{}/tmp-testdir", blobs_dir))?);
 
     println!("Building version 3 with FAIL_INIT=1");
     dockerbuild_and_push(
