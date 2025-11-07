@@ -9,6 +9,11 @@
 
 ## tunnel
 
+- [ ] fix tunnel build errors
+  - compilation failing due to missing features/dependencies in axum and other crates
+  - caused by dependency reorganization
+  - need to update Cargo.toml with correct feature flags
+
 - [ ] make tunnel setup flow testable locally
   - tunnel setup already extracted to reusable functions
   - need to mock/skip github OAuth login for testing
