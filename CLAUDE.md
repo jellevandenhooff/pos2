@@ -20,7 +20,24 @@
 
 3. **Avoid fairly obvious comments** - Don't add comments that don't add value. The code is complex but readers can figure things out
 
+4. **No emojis or unicode characters** - Don't use emojis or decorative unicode characters in code, tests, or logs
+
+5. **Log messages start with lowercase** - Keep log messages lowercase, similar to error messages
+
 ## Git Commits
 
 1. **Use 1-line commit messages** - Keep commit messages concise and on a single line
+
+## Documentation
+
+1. **Keep READMEs up to date** - When adding new features or changing existing functionality, update relevant README files
+2. **Keep READMEs concise** - Avoid excessive detail that will be distracting. Focus on high-level overview and usage
+3. **No implementation details in READMEs** - Don't document internal function calls or detailed step-by-step execution flows
+
+## Testing
+
+1. **No obvious assert descriptions** - If it's clear what an assert checks, omit the description message
+   - Good: `assert!(output.contains("Version: 1.0"));`
+   - Bad: `assert!(output.contains("Version: 1.0"), "expected version 1.0 in output");`
+   - Only add descriptions when the assertion is complex or the failure reason isn't obvious
 
