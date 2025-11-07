@@ -3,8 +3,8 @@ FROM rust:1.90-trixie AS build
 ARG TARGETARCH
 
 RUN \
-  --mount=type=bind,source=cache/cargo-registry,target=/usr/local/cargo/registry \
-  --mount=type=bind,source=cache/cargo-git,target=/usr/local/cargo/git \
+  --mount=type=bind,source=./cache/cargo-registry,target=/usr/local/cargo/registry \
+  --mount=type=bind,source=./cache/cargo-git,target=/usr/local/cargo/git \
   case "$TARGETARCH" in \
     arm64) TARGET="aarch64-unknown-linux-musl" ;; \
     amd64) TARGET="x86_64-unknown-linux-musl" ;; \
@@ -18,9 +18,9 @@ COPY . /app
 RUN mkdir -p /out
 
 RUN \
-  --mount=type=bind,source=cache/cargo-registry,target=/usr/local/cargo/registry \
-  --mount=type=bind,source=cache/cargo-git,target=/usr/local/cargo/git \
-  --mount=type=bind,source=cache/target,target=/app/target \
+  --mount=type=bind,source=./cache/cargo-registry,target=/usr/local/cargo/registry \
+  --mount=type=bind,source=./cache/cargo-git,target=/usr/local/cargo/git \
+  --mount=type=bind,source=./cache/target,target=/app/target \
   case "$TARGETARCH" in \
     arm64) TARGET="aarch64-unknown-linux-musl" ;; \
     amd64) TARGET="x86_64-unknown-linux-musl" ;; \
