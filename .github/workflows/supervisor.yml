@@ -27,21 +27,6 @@ jobs:
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
-      - name: Setup cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            cache/cargo-registry
-            cache/cargo-git
-            cache/target
-          key: ${{ runner.os }}-${{ matrix.architecture }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.architecture }}-cargo-
-      - name: Create cache directories
-        run: |
-          mkdir -p cache/cargo-registry
-          mkdir -p cache/cargo-git
-          mkdir -p cache/target
       - name: Setup docker buildx
         id: setup-buildx
         uses: docker/setup-buildx-action@v3
