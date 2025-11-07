@@ -5,27 +5,29 @@ RUN apt-get update && apt-get install -y patchelf
 WORKDIR /app
 COPY . /app
 
+ARG VERSION=unknown
+ARG FAIL_INIT=0
+ARG TIMEOUT_INIT=0
+
 RUN mkdir -p /out
 
+# Build the dockerloader-bundler tool and the main binary
 RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   --mount=type=cache,target=/usr/local/cargo/git \
   --mount=type=cache,target=/app/target \
-  cargo build --release -p dockerloaded && \
-  cp /app/target/release/dockerloaded /out/app && \
-  patchelf --set-rpath "$(ldconfig -v 2>/dev/null | sed '/^\t/d; s/:.*//; s|^|$ORIGIN|' | paste -sd:)" /out/app
+  cargo build --release -p dockerloader-bundler -p dockerloaded && \
+  cp /app/target/release/dockerloader-bundler /tmp/dockerloader-bundler && \
+  cp /app/target/release/dockerloaded /tmp/dockerloaded
 
-FROM debian:trixie-slim AS app
-RUN apt-get update && apt-get install -y ca-certificates
-ARG VERSION=unknown
-ARG FAIL_INIT=0
-ARG TIMEOUT_INIT=0
-ENV VERSION=$VERSION
-ENV FAIL_INIT=$FAIL_INIT
-ENV TIMEOUT_INIT=$TIMEOUT_INIT
-ENV CONTAINER=1
-ENV RUST_LOG=info
-RUN env > /.env
-COPY --from=build /out/app /entrypoint
+# Use dockerloader-bundler to gather only necessary libraries
+RUN /tmp/dockerloader-bundler /tmp/dockerloaded /out
+
+# Create .env file with build args
+RUN printf "VERSION=%s\nFAIL_INIT=%s\nTIMEOUT_INIT=%s\nCONTAINER=1\nRUST_LOG=info\n" \
+  "$VERSION" "$FAIL_INIT" "$TIMEOUT_INIT" > /out/.env
+
+FROM scratch AS app
+COPY --from=build /out /
 ENTRYPOINT ["/entrypoint"]
 CMD []

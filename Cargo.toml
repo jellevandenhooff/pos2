@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "wasi3experiment", "wasi3app", "dockerloader", "dockerloaded"]
+members = ["sqlite-plugin", "replsqlite", "selfupdater", "tunnel", "wasi3experiment", "wasi3app", "dockerloader", "dockerloaded", "dockerloader-bundler"]
 
 [workspace.dependencies]
 anyhow = "1.0.100"
