@@ -22,6 +22,13 @@
   - consider using `docker-compose logs -f` approach
   - maybe expose server logs via volume mount
 
+- [ ] consider running tunnel tests inside docker container
+  - would avoid rebuilding tunnel-test image on every test run
+  - currently rebuilds docker image each time which is slow
+  - could mount source and build inside container
+  - might be inconvenient for debugging or might add complexity
+  - need to weigh pros/cons
+
 - [ ] switch back to CNAME records (nicer than A records)
   - current workaround uses A records pointing to server IP
   - CNAME would be cleaner but hickory-server doesn't handle CNAME resolution correctly
