@@ -366,6 +366,37 @@ async fn load_config_or_spin() -> Result<Wasi3ExperimentConfig> {
     }
 }
 
+fn cancellation_on_signal() -> CancellationToken {
+    let cancellation = CancellationToken::new();
+
+    {
+        let cancellation = cancellation.clone();
+        let mut interrupt =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+                .expect("failed to register SIGINT handler");
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to register SIGTERM handler");
+
+        tokio::spawn(async move {
+            let signal = tokio::select! {
+                _ = interrupt.recv() => {
+                    "interrupt"
+                }
+                _ = terminate.recv() => {
+                    "terminate"
+                }
+            };
+            tracing::info!("received {} signal, stopping...", signal);
+            cancellation.cancel();
+            // TODO: maybe sometimes gracefully exit instead?
+            std::process::exit(0);
+        });
+    }
+
+    cancellation
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -374,17 +405,7 @@ async fn main() -> Result<()> {
         .install_default()
         .expect("help");
 
-    let cancellation = CancellationToken::new();
-
-    {
-        let cancellation = cancellation.clone();
-        tokio::spawn(async move {
-            tokio::signal::ctrl_c().await.ok();
-            cancellation.cancel();
-            // TODO: maybe sometimes gracefully exit instead?
-            std::process::exit(0);
-        });
-    }
+    let cancellation = cancellation_on_signal();
 
     let in_container = if let Ok(s) = std::env::var("CONTAINER")
         && s != ""
