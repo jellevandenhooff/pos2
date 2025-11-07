@@ -19,6 +19,11 @@ async fn main() -> Result<()> {
         let reference = std::env::var("DOCKERLOADER_TARGET")?;
         tracing::info!("entrypoint missing, downloading {}", reference);
         dockerloader::download_entrypoint_initial(&reference).await?;
+    } else {
+        tracing::info!(
+            "found existing entrypoint at {}, will use it (remove /data/dockerloader to force re-download)",
+            dockerloader::ENTRYPOINT_PATH
+        );
     }
 
     loop {

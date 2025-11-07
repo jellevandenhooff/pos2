@@ -3,19 +3,12 @@
 set -eu
 
 # This script installs the pos2 runtime. It creates a local data directory and
-# then runs a docker container configured to use that data directory. It is
-# probably quite broken; it would be nice to instead upload an installer binary
-# as part of a github release and to then run that.
-
-# Known problems:
-# - Auto-update with /var/run/docker.sock is mandatory
-# - Data directory is fixed
-# - No support for non-standard docker.sock location (eg. with podman?)
-# - Maybe the self-update can trigger too early?
+# then runs a docker container configured to use that data directory.
 
 DOCKER_NAME=pos2
-DOCKER_IMAGE="${DOCKER_IMAGE:-ghcr.io/jellevandenhooff/pos2:main}"
-DOCKER_SOCKET=/var/run/docker.sock
+SUPERVISOR_IMAGE="${SUPERVISOR_IMAGE:-ghcr.io/jellevandenhooff/pos2:supervisor-main}"
+RUNTIME_IMAGE="${RUNTIME_IMAGE:-ghcr.io/jellevandenhooff/pos2:runtime-main}"
+UPDATE_INTERVAL="${UPDATE_INTERVAL:-300}"
 DATA_DIR=$HOME/pos2data
 export DOCKER_CLI_HINTS=false
 
@@ -31,13 +24,6 @@ else
 	exit 1
 fi
 
-echo "Checking if $DOCKER_SOCKET exists."
-if [ -S $DOCKER_SOCKET ]; then
-	echo "Found $DOCKER_SOCKET, continuing."
-else
-	echo "Did not find $DOCKER_SOCKET, exiting."
-	exit 1
-fi
 
 echo "Checking if a $DOCKER_NAME container exists."
 if [ "$(docker ps -aq -f name='^'$DOCKER_NAME'$')" ]; then
@@ -52,7 +38,7 @@ fi
 echo
 echo "The installer is ready to continue. if you confirm, the installer"
 echo "will create a directory $DATA_DIR and then start a docker container"
-echo "running $DOCKER_IMAGE with access to the $DOCKER_SOCKET."
+echo "running $SUPERVISOR_IMAGE."
 echo
 
 read -p "Do you want to continue? [y/n] " -r
@@ -66,18 +52,26 @@ fi
 echo
 echo "Creating data directory $DATA_DIR."
 mkdir -p $DATA_DIR
-echo "Starting docker container $DOCKER_NAME running $DOCKER_IMAGE."
+if [ -d "$DATA_DIR/dockerloader" ]; then
+	echo "Note: $DATA_DIR/dockerloader already exists and will be reused."
+	echo "If you want a fresh install, remove it first with: rm -rf $DATA_DIR/dockerloader"
+fi
+echo "Pulling supervisor image $SUPERVISOR_IMAGE."
+docker pull $SUPERVISOR_IMAGE
+echo "Starting docker container $DOCKER_NAME."
 docker run \
 	--name $DOCKER_NAME \
 	--restart always \
 	-d \
+	-e "DOCKERLOADER_TARGET=$RUNTIME_IMAGE" \
+	-e "DOCKERLOADER_UPDATE_INTERVAL_SECS=$UPDATE_INTERVAL" \
 	-v "$DATA_DIR:/data" \
-	-v "$DOCKER_SOCKET:/var/run/docker.sock" \
-	$DOCKER_IMAGE
-echo "Created docker container. Now $DOCKER_NAME is ready for setup."
+	$SUPERVISOR_IMAGE
+echo "Created docker container $DOCKER_NAME."
 echo
-echo "Starting setup command inside container"
-docker exec \
-	-it \
-	$DOCKER_NAME \
-	/app setup
+echo "The supervisor is now running and will download the runtime."
+echo "You can view logs with: docker logs -f $DOCKER_NAME"
+echo
+# TODO: figure out how to run setup inside the extracted runtime
+# The supervisor runs /dockerloader which spawns /entrypoint from extracted runtime
+# We need a way to exec into the spawned process or trigger setup via the runtime
