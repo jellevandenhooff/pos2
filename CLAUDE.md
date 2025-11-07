@@ -35,6 +35,11 @@
    - Good: Extract helpers and use early returns
    - Bad: 5+ levels of nested if/for/match blocks
 
+2. **Consistency is very important** - When adding new code, follow existing patterns in the codebase
+   - Look at similar code and match its style and structure
+   - Use the same approaches for similar problems (e.g., caching, volume mounts, error handling)
+   - Consistency makes the codebase easier to understand and maintain
+
 ## Git Commits
 
 1. **Use 1-line commit messages** - Keep commit messages concise and on a single line

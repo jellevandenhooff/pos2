@@ -7,3 +7,5 @@ loaderdatavolume
 .direnv
 .DS_Store
 **/data
+.test-certs/
+unittest/

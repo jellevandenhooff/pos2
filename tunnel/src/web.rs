@@ -188,7 +188,7 @@ struct ServerState {
     oauth2: Oauth2Client,
     available_suffixes: Vec<String>,
     web_base_url: String,
-    test_mode: bool,
+    enable_test_login: bool,
 }
 
 #[derive(Clone)]
@@ -799,12 +799,12 @@ async fn login_callback_handler(
         panic!("bad state");
     }
 
-    let http_client = state.env.external_reqwest_client;
+    let http_client = &state.env.reqwest_client;
 
     let token_result = state
         .oauth2
         .exchange_code(oauth2::AuthorizationCode::new(query.code.clone()))
-        .request_async(&http_client)
+        .request_async(http_client)
         .await
         .expect("request should be good...");
     // .unwrap("token should be good");
@@ -873,8 +873,8 @@ async fn login_test_handler(
     Extension(state): Extension<ServerState>,
     axum::Json(req): axum::Json<LoginTestRequest>,
 ) -> Response {
-    if !state.test_mode {
-        return (StatusCode::FORBIDDEN, "test mode not enabled").into_response();
+    if !state.enable_test_login {
+        return (StatusCode::FORBIDDEN, "test login not enabled").into_response();
     }
 
     let maybe_user = state
@@ -941,7 +941,7 @@ pub async fn make_router(
     web_base_url: String,
     github_oauth2_client_id: String,
     github_oauth2_client_secret: String,
-    test_mode: bool,
+    enable_test_login: bool,
 ) -> Result<axum::Router> {
     let app = axum::Router::new()
         .route("/", get(index_handler))
@@ -973,7 +973,7 @@ pub async fn make_router(
             )?,
             available_suffixes: available_suffixes,
             web_base_url: web_base_url,
-            test_mode: test_mode,
+            enable_test_login: enable_test_login,
         }))
         .layer(CookieManagerLayer::new());
 
@@ -1027,26 +1027,34 @@ impl ApiClient {
 }
 
 pub async fn run_device(env: &Environment, endpoint: &str) -> Result<String> {
-    // let client_id = env::var("GITHUB_OAUTH2_CLIENT_ID")?;
-    // let client_secret = env::var("GITHUB_OAUTH2_CLIENT_SECRET")?;
     let client_id = "ok".into();
     let client_secret = "ok".into();
 
+    let device_url = format!("{endpoint}/login/device/code");
+    let token_url = format!("{endpoint}/login/oauth/access_token");
+
     let client = oauth2::basic::BasicClient::new(oauth2::ClientId::new(client_id))
         .set_client_secret(oauth2::ClientSecret::new(client_secret))
-        .set_device_authorization_url(oauth2::DeviceAuthorizationUrl::new(format!(
-            "{endpoint}/login/device/code"
-        ))?)
-        .set_token_uri(oauth2::TokenUrl::new(format!(
-            "{endpoint}/login/oauth/access_token"
-        ))?);
+        .set_device_authorization_url(oauth2::DeviceAuthorizationUrl::new(device_url)?)
+        .set_token_uri(oauth2::TokenUrl::new(token_url)?);
 
     let http_client = &env.reqwest_client;
 
-    let details: StandardDeviceAuthorizationResponse = client
+    println!("run_device: calling exchange_device_code");
+    let details: StandardDeviceAuthorizationResponse = match client
         .exchange_device_code()
         .request_async(http_client)
-        .await?;
+        .await
+    {
+        Ok(d) => {
+            println!("run_device: got device code response");
+            d
+        }
+        Err(e) => {
+            println!("run_device: ERROR: {:?}", e);
+            return Err(e.into());
+        }
+    };
 
     println!(
         "Open this URL in your browser:\n{}\nand enter the code: {}",

@@ -33,8 +33,19 @@ External HTTPS requests arrive at the server's HTTPS listener. The server parses
 
 Certificates are provisioned automatically via Let's Encrypt ACME with DNS-01 validation. The certificate maintainer requests certs from ACME, writes challenge TXT records to the local DNS server, waits for ACME validation, and downloads the certificate. Certificates are hot-swapped without restart. A background loop monitors renewal windows and renews before expiry.
 
-## Local testing
+## Testing
 
-Local testing infrastructure exists using a Pebble ACME server (test CA) and local DNS server. This allows development without production DNS or certificates.
+Integration tests run in Docker containers with Pebble (ACME test CA) and dnsmasq (DNS forwarding).
 
-Note: Local testing support is work in progress and needs improvement for DNS resolution, certificate trust, and documentation.
+Setup:
+```bash
+./local-setup.sh  # start pebble and dnsmasq, extract CA certificates
+```
+
+Run tests:
+```bash
+cargo test --test device_flow_test       # OAuth device flow only
+cargo test --test tunnel_end_to_end_test # full end-to-end with tunnel connection
+```
+
+The test containers use system DNS and certificate trust store. Pebble CA certificates are installed via `update-ca-certificates` in the test image, so rust code with `rustls-native-certs` automatically trusts them.

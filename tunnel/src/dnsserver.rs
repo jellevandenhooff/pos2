@@ -88,9 +88,11 @@ where
             };
         }
 
-        self.underlying
+        let response_info = self.underlying
             .handle_request(request, response_handle)
-            .await
+            .await;
+
+        response_info
     }
 }
 
@@ -100,6 +102,7 @@ pub struct DnsServer {
     peristence: crate::db::DB,
     quic_tunnel_endpoint: String,
     external_domain: String,
+    public_ip: String,
 }
 
 pub struct Authorizer {
@@ -199,6 +202,9 @@ impl DnsClient for Arc<DnsServer> {
     }
 
     async fn add_cname_record(&self, name: &str, value: &str) -> Result<()> {
+        if !value.ends_with('.') {
+            bail!("cname target must end with '.' to be fully qualified");
+        }
         let rdata = CNAME(Name::from_str(value)?).into_rdata();
         add_record(self, name, 1, None, rdata).await?;
         Ok(())
@@ -212,6 +218,7 @@ pub async fn make_dns_server(
     listen_address: SocketAddr,
     quic_tunnel_endpoint: String,
     external_domain: String,
+    public_ip: String,
 ) -> Result<(
     Arc<DnsServer>,
     hickory_server::ServerFuture<ReadonlyRequestHandler<Catalog>>,
@@ -262,7 +269,8 @@ pub async fn make_dns_server(
     let origin = authority.origin().clone();
     catalog.upsert(origin, vec![authority.clone()]);
 
-    let mut server = hickory_server::ServerFuture::new(ReadonlyRequestHandler::new(catalog));
+    let readonly_handler = ReadonlyRequestHandler::new(catalog);
+    let mut server = hickory_server::ServerFuture::new(readonly_handler);
     println!("listeneing");
     let socket = UdpSocket::bind(listen_address).await?;
     server.register_socket(socket);
@@ -290,6 +298,7 @@ pub async fn make_dns_server(
             peristence: persistence,
             quic_tunnel_endpoint: quic_tunnel_endpoint,
             external_domain: external_domain,
+            public_ip: public_ip,
         }),
         server,
     ))
@@ -425,6 +434,7 @@ async fn get_tunnel_info(Extension(dnsserver): Extension<Arc<DnsServer>>) -> Res
     Json(crate::common::TunnelInfoResponse {
         quic_endpoint: dnsserver.quic_tunnel_endpoint.clone(),
         public_endpoint: dnsserver.external_domain.clone(),
+        public_ip: dnsserver.public_ip.clone(),
     })
     .into_response()
 }
@@ -515,79 +525,7 @@ impl DnsClient for DnsServerClient {
     }
 }
 
-/// HickoryResolver implements reqwest [`Resolve`] so that we can use it as reqwest's DNS resolver.
-#[derive(Debug, Clone)]
-pub struct HickoryResolver {
-    resolver: Arc<hickory_resolver::TokioResolver>,
-}
-
-impl HickoryResolver {
-    pub fn new() -> Result<Self> {
-        let mut config = hickory_resolver::config::ResolverConfig::new();
-        config.add_name_server(hickory_resolver::config::NameServerConfig::new(
-            "127.0.0.1:9999".parse()?,
-            hickory_server::proto::xfer::Protocol::Udp,
-        ));
-
-        let resolver = hickory_resolver::Resolver::builder_with_config(
-            config,
-            hickory_resolver::name_server::TokioConnectionProvider::default(),
-        )
-        .with_options(hickory_resolver::config::ResolverOpts::default())
-        .build();
-
-        Ok(Self {
-            resolver: Arc::new(resolver),
-        })
-    }
-}
-
 pub fn extract_host(host_and_port: &str) -> Result<&str> {
     let (host, _port) = host_and_port.rsplit_once(':').context("missing :")?;
     Ok(host)
-}
-
-#[async_trait]
-pub trait BasicResolver: Send + Sync {
-    async fn resolve(&self, addr: &str) -> Result<Vec<SocketAddr>>;
-}
-
-#[async_trait]
-impl BasicResolver for HickoryResolver {
-    async fn resolve(&self, addr: &str) -> Result<Vec<SocketAddr>> {
-        let (host, port_str) = addr.rsplit_once(':').context("missing :")?;
-        let port: u16 = port_str.parse().context("invalid port value")?;
-        let lookup = self.resolver.lookup_ip(host).await?;
-        Ok(lookup
-            .into_iter()
-            .map(|addr| SocketAddr::new(addr, port))
-            .collect())
-    }
-}
-
-pub struct ResolverWrapper {
-    pub inner: Arc<dyn BasicResolver + Sync + Send>,
-}
-
-impl reqwest::dns::Resolve for ResolverWrapper {
-    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
-        let resolver = self.inner.clone();
-        Box::pin(async move {
-            let with_fake_port = format!("{}:0", name.as_str());
-            let lookup = resolver.resolve(&with_fake_port).await?;
-
-            let addrs: reqwest::dns::Addrs = Box::new(lookup.into_iter());
-            Ok(addrs)
-        })
-    }
-}
-
-#[allow(unused)]
-pub struct BuiltinResolver {}
-
-#[async_trait]
-impl BasicResolver for BuiltinResolver {
-    async fn resolve(&self, addr: &str) -> Result<Vec<SocketAddr>> {
-        Ok(tokio::net::lookup_host(addr).await?.collect())
-    }
 }

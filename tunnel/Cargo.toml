@@ -21,7 +21,7 @@ cookie = { workspace = true }
 futures = { workspace = true }
 generic-array = { workspace = true }
 hickory-proto = { workspace = true, features = ["serde"] }
-hickory-resolver = { workspace = true }
+hickory-resolver = { workspace = true, features = ["system-config", "tokio"] }
 hickory-server = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
@@ -39,6 +39,7 @@ rand = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 rusqlite = { workspace = true, features = ["chrono"] }
 rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
 rustls-pki-types = { workspace = true }
 rustls-platform-verifier = { workspace = true }
 rustls-webpki = { workspace = true }

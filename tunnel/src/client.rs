@@ -73,11 +73,21 @@ where
         // TODO: reuse endpoint?
         let mut client_endpoint = quinn::Endpoint::client("0.0.0.0:0".parse()?)?;
 
+        // create rustls config with system certificates
+        let mut root_store = rustls::RootCertStore::empty();
+        let certs = rustls_native_certs::load_native_certs();
+        for cert in certs.certs {
+            root_store.add(cert).ok();
+        }
+        let rustls_client_config = rustls::ClientConfig::builder()
+            .with_root_certificates(Arc::new(root_store))
+            .with_no_client_auth();
+
         let mut transport_config = quinn::TransportConfig::default();
         transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
         let mut quinn_config =
             quinn::ClientConfig::new(Arc::new(quinn::crypto::rustls::QuicClientConfig::try_from(
-                self.env.rustls_client_config.clone(),
+                rustls_client_config,
             )?));
         quinn_config.transport_config(Arc::new(transport_config));
         client_endpoint.set_default_client_config(quinn_config);
@@ -86,12 +96,9 @@ where
         let tunnel_info = self.get_tunnel_info().await?;
         println!("endpoint: {}", tunnel_info.quic_endpoint);
 
-        let addrs = self
-            .env
-            .dns_resolver
-            .resolve(&tunnel_info.quic_endpoint)
-            .await?;
-        let addr = addrs.into_iter().next().context("no addresses found")?;
+        // use tokio's DNS resolver
+        let mut addrs = tokio::net::lookup_host(&tunnel_info.quic_endpoint).await?;
+        let addr = addrs.next().context("no addresses found")?;
 
         let tunnel_host = extract_host(&tunnel_info.quic_endpoint)?;
 
@@ -239,12 +246,17 @@ pub async fn client_main(
     });
 
     // TODO: only get once? update DNS over and over?
+    tracing::info!("getting tunnel info");
     let tunnel_info = client.get_tunnel_info().await?;
+    tracing::info!(endpoint = %tunnel_info.quic_endpoint, public_endpoint = %tunnel_info.public_endpoint, "got tunnel info");
 
+    tracing::info!(name = %name, ip = %tunnel_info.public_ip, "registering DNS A record");
     dns_client
-        .add_cname_record(&format!("{name}."), &tunnel_info.public_endpoint)
+        .add_a_record(&format!("{name}."), &tunnel_info.public_ip.parse()?)
         .await?;
+    tracing::info!("DNS A record registered");
 
+    tracing::info!("starting tunnel client");
     client.run().await?;
 
     Ok(())

@@ -53,6 +53,7 @@ rand = "0.9.2"
 reqwest = { version = "0.12.24", default-features = false }
 rustix = "1.1.2"
 rustls = "0.23.27"
+rustls-native-certs = "0.8.2"
 rustls-pki-types = "1.12.0"
 rustls-platform-verifier = "0.6.0"
 rustls-webpki = "0.103.3"

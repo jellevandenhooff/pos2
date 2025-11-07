@@ -51,16 +51,25 @@ pub async fn run_interactive_setup(
             inquire::Select::new("what tunnel server would you like to use?", choices.clone())
                 .prompt()?;
 
-        match choice {
-            TunnelChoice::Known(endpoint) => endpoint,
+        println!("selected choice, matching...");
+        let endpoint = match choice {
+            TunnelChoice::Known(endpoint) => {
+                println!("known endpoint: {}", endpoint);
+                endpoint
+            }
             TunnelChoice::Custom => {
+                println!("custom endpoint");
                 let endpoint = inquire::prompt_text("please enter a endpoint")?;
                 endpoint
             }
-        }
+        };
+        println!("endpoint resolved to: {}", endpoint);
+        endpoint
     };
 
+    println!("calling run_device with endpoint: {}", endpoint);
     let token = crate::web::run_device(&env, &endpoint).await?;
+    println!("run_device returned");
 
     let client = crate::web::ApiClient::new(&env, &&endpoint, &token);
 

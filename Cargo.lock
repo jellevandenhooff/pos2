@@ -5604,6 +5604,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "rustls 0.23.34",
+ "rustls-native-certs",
  "rustls-pki-types",
  "rustls-platform-verifier",
  "rustls-webpki 0.103.7",

@@ -25,6 +25,7 @@ pub struct TunnelInfoRequest {}
 pub struct TunnelInfoResponse {
     pub quic_endpoint: String,
     pub public_endpoint: String,
+    pub public_ip: String,
 }
 
 pub async fn read_optional_json_file<T>(path: &str) -> Result<Option<T>>
@@ -66,21 +67,9 @@ pub async fn read_optional_file(path: &str) -> Result<Option<String>> {
     }
 }
 
-#[allow(unused)]
-fn make_rustls_client_config() -> Result<rustls::ClientConfig> {
-    use rustls_platform_verifier::BuilderVerifierExt;
-
-    Ok(
-        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
-            .with_platform_verifier()?
-            .with_no_client_auth(),
-    )
-}
-
 pub fn make_rustls_server_config(
     resolver: Arc<dyn rustls::server::ResolvesServerCert>,
 ) -> Result<Arc<rustls::ServerConfig>> {
-    // let resolver = cert::StaticCertResolver::load_from_files(name)?;
     let rustls_config =
         rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
             .with_no_client_auth()
@@ -90,45 +79,34 @@ pub fn make_rustls_server_config(
 
 #[derive(Clone)]
 pub struct Environment {
-    pub rustls_client_config: Arc<rustls::ClientConfig>,
-    // pub rustls_server_config: Arc<rustls::ServerConfig>,
-    pub dns_resolver: Arc<dyn crate::dnsserver::BasicResolver>,
     pub reqwest_client: reqwest::Client,
-    pub external_reqwest_client: reqwest::Client,
     pub acme_server_url: String,
     pub base_dir: String,
 }
 
 impl Environment {
-    pub fn new(
-        rustls_client_config: rustls::ClientConfig,
-        // rustls_server_config: rustls::ServerConfig,
-        dns_resolver: Arc<dyn crate::dnsserver::BasicResolver>,
-        acme_server_url: String,
-        base_dir: String,
-    ) -> Result<Self> {
+    pub fn new(acme_server_url: String, base_dir: String) -> Result<Self> {
+        // create rustls config with system certificates
+        let mut root_store = rustls::RootCertStore::empty();
+        let certs = rustls_native_certs::load_native_certs();
+        for cert in certs.certs {
+            root_store.add(cert).ok();
+        }
+        let tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(Arc::new(root_store))
+            .with_no_client_auth();
+
         let reqwest_client = reqwest::Client::builder()
             .use_rustls_tls()
-            .use_preconfigured_tls(rustls_client_config.clone())
-            .dns_resolver(Arc::new(crate::dnsserver::ResolverWrapper {
-                inner: dns_resolver.clone(),
-            }))
+            .use_preconfigured_tls(tls_config)
             .redirect(reqwest::redirect::Policy::none())
-            .build()?;
-
-        let external_reqwest_client = reqwest::Client::builder()
-            .use_rustls_tls()
-            .redirect(reqwest::redirect::Policy::none())
+            .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
         Ok(Self {
-            rustls_client_config: Arc::new(rustls_client_config),
-            // rustls_server_config: Arc::new(rustls_server_config),
-            dns_resolver: dns_resolver,
             reqwest_client,
-            external_reqwest_client,
-            acme_server_url: acme_server_url,
-            base_dir: base_dir,
+            acme_server_url,
+            base_dir,
         })
     }
 
@@ -139,22 +117,10 @@ impl Environment {
     }
 
     pub async fn prod(base_dir: String) -> Result<Self> {
-        Self::new(
-            make_rustls_client_config()?,
-            Arc::new(crate::dnsserver::BuiltinResolver {}),
-            LetsEncrypt::Production.url().to_owned(),
-            base_dir,
-        )
+        Self::new(LetsEncrypt::Production.url().to_owned(), base_dir)
     }
 
     pub async fn test(base_dir: String) -> Result<Self> {
-        // UGH... TODO, make this work with real github (maybe? somehow?)
-        Self::new(
-            crate::cert::make_test_client_tlsconfig().await?,
-            // rustls_server_config,
-            Arc::new(crate::dnsserver::HickoryResolver::new()?),
-            "https://localhost:14000/dir".into(),
-            base_dir,
-        )
+        Self::new("https://pebble:14000/dir".into(), base_dir)
     }
 }

@@ -1,3 +1,0 @@
-[submodule "tunnel/pebble"]
-	path = tunnel/pebble
-	url = https://github.com/letsencrypt/pebble

@@ -50,7 +50,8 @@ async fn test_device_flow_end_to_end() {
         available_suffixes: vec![".test.local".into()],
         github_oauth2_client_id: "test_client_id".into(),
         github_oauth2_client_secret: "test_client_secret".into(),
-        test_mode: true,
+        enable_acme: false,
+        enable_test_login: true,
     };
 
     std::fs::write(

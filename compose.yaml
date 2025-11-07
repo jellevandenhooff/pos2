@@ -4,3 +4,40 @@ services:
     ports:
       - "5050:5000"
 
+  dnsmasq:
+    image: strm/dnsmasq:latest
+    container_name: dnsmasq
+    volumes:
+      - ./tunnel/test.dnsmasq.conf:/etc/dnsmasq.conf:ro
+    cap_add:
+      - NET_ADMIN
+    extra_hosts:
+      - "tunnelhost:host-gateway"
+    networks:
+      tunnel-test:
+        ipv4_address: 172.19.0.2
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    container_name: pebble
+    ports:
+      - "14000:14000"
+      - "15000:15000"
+    environment:
+      - PEBBLE_VA_NOSLEEP=1
+      - PEBBLE_WFE_NONCEREJECT=0
+    command: -dnsserver dnsmasq:53
+    depends_on:
+      - dnsmasq
+    networks:
+      - tunnel-test
+
+networks:
+  tunnel-test:
+    name: tunnel-test
+    driver_opts:
+      com.docker.network.bridge.name: tunnel-test
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16
+          gateway: 172.19.0.1
