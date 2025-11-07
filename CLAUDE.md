@@ -35,6 +35,8 @@
 1. **Use 1-line commit messages** - Keep commit messages concise and on a single line
 2. **No emojis in commit messages** - Don't use emojis or decorative unicode characters in commit messages
 3. **No "Generated with" attribution** - Don't add "Generated with Claude Code" lines to commit messages. Co-Authored-By is okay
+4. **Prefer fewer commits** - When completing a task, squash/rebase related commits into logical units rather than leaving many small incremental commits
+5. **Use reset --soft, not --hard** - When resetting commits, use `git reset --soft` to preserve changes. Never use `--hard` as it discards uncommitted work
 
 ## Documentation
 
